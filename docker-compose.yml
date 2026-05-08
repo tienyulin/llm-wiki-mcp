@@ -8,8 +8,8 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: minio server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -29,13 +29,34 @@ services:
     ports:
       - "8001:8001"
     environment:
-      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-dummy-key}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-wiki-data}
     depends_on:
       minio:
         condition: service_healthy
     networks:
       - wiki-network
     command: python main.py
+
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: mcp-server
+    environment:
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-wiki-data}
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - wiki-network
+    command: python server.py
 
 volumes:
   minio_data:
