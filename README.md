@@ -11,7 +11,7 @@ wiki-processor (FastAPI)
       ↓ (LLM: analyze + merge)
 Minio (wiki.json)
       ↓
-mcp-server (MCP tools)
+mcp-server (HTTP API)
       ↓
 Claude (query APIs)
 ```
@@ -230,6 +230,6 @@ MCP Server    WikiService       MinioReader
 ## 測試覆蓋
 
 - **wiki-processor**：12 tests（extract_json / detect_changes / API routes）
-- **mcp-server**：13 tests（list / search / detail）
+- **mcp-server**：23 tests（13 wiki_service + 10 http_api tests）
 
 全部通過 ✅
