@@ -1,0 +1,82 @@
+# GitLab CI Configuration for Central Markdown Repository
+# Place this file in the root of your central markdown repo that contains:
+#   markdowns/
+#   ├── api-users.md
+#   ├── api-orders.md
+#   └── ...
+
+stages:
+  - deploy
+
+# Main job: collect markdown and send to processor
+update-wiki:
+  stage: deploy
+  image: python:3.11-slim
+
+  # Only run when markdown files change
+  rules:
+    - changes:
+        - markdowns/**/*.md
+      when: always
+    - when: manual  # Allow manual trigger
+
+  # Environment variables
+  variables:
+    # Where the processor is running
+    WIKI_PROCESSOR_URL: "${WIKI_PROCESSOR_URL:-http://wiki-processor:8001}"
+    # Glob pattern to find markdown files
+    MARKDOWN_PATTERN: "markdowns/**/*.md"
+
+  script:
+    # Step 1: Install dependencies
+    - echo "📦 Installing dependencies..."
+    - pip install --no-cache-dir httpx
+
+    # Step 2: Get the send script
+    # Option A: From your repo (if you committed it)
+    - |
+      if [ -f "scripts/send_to_processor.py" ]; then
+        python3 scripts/send_to_processor.py
+      # Option B: Download from the example (if script is in separate repo)
+      else
+        curl -sSL https://raw.githubusercontent.com/your-org/llm-wiki-mcp/main/examples/send_to_processor.py -o send_to_processor.py
+        python3 send_to_processor.py
+      fi
+
+  # Retry on network failure
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
+  # Allow job to fail without blocking pipeline
+  allow_failure: false
+
+  # Show logs in GitLab UI
+  artifacts:
+    reports:
+      dotenv: processor.env
+    expire_in: 1 day
+
+
+# Optional: Health check job to verify processor is ready
+.health-check:
+  stage: .pre
+  image: curlimages/curl:latest
+  script:
+    - |
+      echo "🏥 Checking processor health..."
+      for i in {1..10}; do
+        if curl -sf "${WIKI_PROCESSOR_URL}/health" > /dev/null; then
+          echo "✅ Processor is healthy"
+          exit 0
+        fi
+        echo "⏳ Waiting for processor... (attempt $i/10)"
+        sleep 2
+      done
+      echo "❌ Processor failed health check"
+      exit 1
+  allow_failure: true
+  variables:
+    WIKI_PROCESSOR_URL: "${WIKI_PROCESSOR_URL:-http://wiki-processor:8001}"
