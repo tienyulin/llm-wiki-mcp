@@ -41,11 +41,19 @@ services:
       - wiki-network
     command: python main.py
 
-  mcp-server:
+  # MCP Server - stdio mode (for individual Claude Code sessions)
+  # Not started by default in docker-compose
+  # Start with: docker-compose up mcp-server-http for team use
+
+  # MCP Server - HTTP mode (for team deployment)
+  # Async FastAPI with concurrent request handling
+  mcp-server-http:
     build:
       context: ./mcp-server
-      dockerfile: Dockerfile
-    container_name: mcp-server
+      dockerfile: Dockerfile.http
+    container_name: mcp-server-http
+    ports:
+      - "8002:8002"
     environment:
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
@@ -56,7 +64,9 @@ services:
         condition: service_healthy
     networks:
       - wiki-network
-    command: python server.py
+    command: python http_api/main.py
+    profiles:
+      - team
 
 volumes:
   minio_data:
