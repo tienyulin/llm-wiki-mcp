@@ -41,17 +41,11 @@ services:
       - wiki-network
     command: python main.py
 
-  # MCP Server - stdio mode (for individual Claude Code sessions)
-  # Not started by default in docker-compose
-  # Start with: docker-compose up mcp-server-http for team use
-
-  # MCP Server - HTTP mode (for team deployment)
-  # Async FastAPI with concurrent request handling
-  mcp-server-http:
+  mcp-server:
     build:
       context: ./mcp-server
-      dockerfile: Dockerfile.http
-    container_name: mcp-server-http
+      dockerfile: Dockerfile
+    container_name: mcp-server
     ports:
       - "8002:8002"
     environment:
@@ -65,8 +59,6 @@ services:
     networks:
       - wiki-network
     command: python http_api/main.py
-    profiles:
-      - team
 
 volumes:
   minio_data:

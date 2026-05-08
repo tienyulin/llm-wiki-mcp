@@ -11,7 +11,7 @@ wiki-processor (FastAPI)
       ↓ (LLM: analyze + merge)
 Minio (wiki.json)
       ↓
-mcp-server (MCP tools)
+mcp-server (HTTP API)
       ↓
 Claude (query APIs)
 ```
@@ -21,7 +21,7 @@ Claude (query APIs)
 | 組件 | 功能 | Port |
 |------|------|------|
 | **wiki-processor** | FastAPI 服務，接收 markdown，調用 Minimax LLM | 8001 |
-| **mcp-server** | MCP server，提供三個工具查詢 wiki | stdio |
+| **mcp-server** | HTTP API，提供工具查詢 wiki | 8002 |
 | **Minio** | 對象存儲，存放 wiki.json 和快照 | 9000, 9001 |
 
 ## 快速開始
@@ -50,26 +50,25 @@ MINIO_ROOT_PASSWORD=minioadmin
 docker-compose up -d
 ```
 
-服務：
+服務已啟動：
 - **Minio 控制台**：http://localhost:9001 (admin:minioadmin)
 - **wiki-processor**：http://localhost:8001
+- **mcp-server**：http://localhost:8002（HTTP API）
 
 ### 3. 測試
 
 ```bash
-# 健康檢查
+# wiki-processor 健康檢查
 curl http://localhost:8001/health
 
-# 發送 markdown 到 processor
-curl -X POST http://localhost:8001/process \
-  -H "Content-Type: application/json" \
-  -d '{
-    "markdowns": {
-      "api-users.md": "## GET /users/{id}\nGet user by ID"
-    },
-    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-    "trigger_info": {"repo": "test", "branch": "main"}
-  }'
+# mcp-server 健康檢查
+curl http://localhost:8002/health
+
+# 查詢所有 API
+curl http://localhost:8002/list_apis
+
+# 搜尋 API
+curl http://localhost:8002/search_apis?query=inventory
 ```
 
 ## 工作流程
@@ -97,16 +96,22 @@ update-wiki:
 - **增量更新**：LLM 只分析變化的文件，合併到現有 wiki
 - 保存結果到 Minio
 
-### 3. MCP Server
+### 3. MCP Server（HTTP API）
 
-Claude 可通過三個 MCP 工具查詢 wiki：
+通過 HTTP API 查詢 wiki：
 
-```python
-tools = [
-    list_apis(module="")          # 列出所有 API，可依 module 過濾
-    search_apis(query="...")       # 關鍵字搜尋
-    get_api_detail(module, api)    # 取得詳細資訊
-]
+```bash
+# 列出所有 API（可依 module 過濾）
+curl "http://localhost:8002/list_apis?module=inventory"
+
+# 搜尋 API
+curl "http://localhost:8002/search_apis?query=create"
+
+# 取得 API 詳細資訊
+curl "http://localhost:8002/get_api_detail?module=inventory&api_key=GET%20/inventory/{id}"
+
+# Wiki 統計
+curl http://localhost:8002/wiki_info
 ```
 
 ## 設定檔
@@ -121,12 +126,22 @@ tools = [
 
 ## API 端點
 
-### wiki-processor
+### wiki-processor（8001）
 
 ```
 POST /process              處理 markdown，更新 wiki
 GET  /status              查詢 wiki 統計
 GET  /health              健康檢查
+```
+
+### mcp-server（8002，HTTP API）
+
+```
+GET /health                           健康檢查
+GET /list_apis?module=""              列所有 API（可依 module 過濾）
+GET /search_apis?query=""             關鍵字搜尋
+GET /get_api_detail?module=&api_key=  取得詳細資訊
+GET /wiki_info                        Wiki 統計
 ```
 
 ## 環境變數
@@ -148,11 +163,11 @@ MINIO_SECURE=false         # 若用 HTTPS 改為 true
 ```bash
 # 運行測試
 cd wiki-processor && pytest tests/ -v
-cd ../mcp-server && pytest tests/ -v
+cd ../mcp-server && pytest tests/ http_api/test_http_api.py -v
 
 # 語法檢查
 python3 -m py_compile wiki-processor/main.py
-python3 -m py_compile mcp-server/server.py
+python3 -m py_compile mcp-server/http_api/main.py
 ```
 
 ## 故障排除
@@ -215,6 +230,6 @@ MCP Server    WikiService       MinioReader
 ## 測試覆蓋
 
 - **wiki-processor**：12 tests（extract_json / detect_changes / API routes）
-- **mcp-server**：13 tests（list / search / detail）
+- **mcp-server**：23 tests（13 wiki_service + 10 http_api tests）
 
 全部通過 ✅
