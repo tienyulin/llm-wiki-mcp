@@ -1,0 +1,112 @@
+# Example: Central Markdown Repository GitLab CI Configuration
+# This CI runs in the repository that contains all markdown documentation
+# It triggers the wiki-processor service via HTTP POST
+
+process-wiki:
+  stage: deploy
+  image: python:3.11-slim
+  script:
+    # 1. Install required tools
+    - apt-get update && apt-get install -y curl jq
+
+    # 2. Collect all markdown files and create JSON payload
+    - |
+      python3 << 'EOF'
+      import json
+      import glob
+      import os
+      from datetime import datetime, timezone
+
+      # Collect all markdown files
+      markdowns = {}
+      for f in sorted(glob.glob("markdowns/**/*.md", recursive=True)):
+        with open(f, 'r', encoding='utf-8') as file:
+          markdowns[f] = file.read()
+
+      if not markdowns:
+        print("ERROR: No markdown files found in markdowns/")
+        exit(1)
+
+      print(f"Collected {len(markdowns)} markdown files")
+
+      # Create payload
+      payload = {
+        "markdowns": markdowns,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "trigger_info": {
+          "repo": os.getenv("CI_PROJECT_PATH", "unknown"),
+          "branch": os.getenv("CI_COMMIT_BRANCH", "unknown"),
+          "commit_sha": os.getenv("CI_COMMIT_SHA", "unknown"),
+          "pipeline_url": os.getenv("CI_PIPELINE_URL", "unknown")
+        }
+      }
+
+      # Write payload to file for curl
+      with open("/tmp/payload.json", "w") as f:
+        json.dump(payload, f)
+
+      print("Payload prepared")
+      EOF
+
+    # 3. POST to wiki-processor API
+    - |
+      WIKI_PROCESSOR_URL="${WIKI_PROCESSOR_URL:-http://wiki-processor:8001}"
+      echo "Sending to: $WIKI_PROCESSOR_URL/process"
+
+      response=$(curl -X POST \
+        "$WIKI_PROCESSOR_URL/process" \
+        -H "Content-Type: application/json" \
+        -d @/tmp/payload.json \
+        -w "\n%{http_code}" \
+        -s)
+
+      # Extract status code
+      http_code=$(echo "$response" | tail -n 1)
+      body=$(echo "$response" | sed '$d')
+
+      echo "Response Code: $http_code"
+      echo "Response Body: $body"
+
+      if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+        echo "ERROR: Wiki processor returned status $http_code"
+        exit 1
+      fi
+
+      # Parse response
+      echo "$body" | jq '.'
+      echo "✅ Wiki processing completed successfully"
+
+  only:
+    - main
+  rules:
+    # Only run if markdown files changed
+    - changes:
+        - markdowns/**/*.md
+      when: always
+  # Optional: Set up environment variables
+  variables:
+    WIKI_PROCESSOR_URL: "http://wiki-processor:8001"
+  # Retry on network failures
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
+# Optional: Health check job to ensure processor is ready
+.health-check:
+  stage: .pre
+  image: curlimages/curl:latest
+  script:
+    - |
+      for i in {1..10}; do
+        if curl -f http://wiki-processor:8001/health; then
+          echo "✅ Wiki processor is healthy"
+          exit 0
+        fi
+        echo "Waiting for wiki-processor... ($i/10)"
+        sleep 2
+      done
+      echo "❌ Wiki processor failed health check"
+      exit 1
+  allow_failure: true
