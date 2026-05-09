@@ -26,8 +26,12 @@ services:
     container_name: wiki-processor
     ports:
       - "8001:8001"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+      MOCK_LLM: ${MOCK_LLM:-false}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
