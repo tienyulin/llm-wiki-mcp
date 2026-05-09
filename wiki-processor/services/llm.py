@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 
 import httpx
@@ -15,6 +16,9 @@ class MinimaxClient:
 
     def __init__(self, api_key: str):
         self.api_key = api_key
+        self.mock_mode = os.getenv("MOCK_LLM", "false").lower() == "true"
+        if self.mock_mode:
+            logger.warning("Running in MOCK mode - LLM calls will return mock responses")
 
     def extract_json(self, content: str) -> dict:
         """Remove <think>...</think> tags and extract JSON from LLM response."""
@@ -29,7 +33,10 @@ class MinimaxClient:
 
     async def _call(self, prompt: str, temperature: float) -> str:
         """Make a single call to the Minimax API and return the assistant message content."""
-        async with httpx.AsyncClient() as client:
+        if self.mock_mode:
+            return self._mock_response(prompt)
+
+        async with httpx.AsyncClient(verify=False) as client:
             response = await client.post(
                 MINIMAX_API_URL,
                 headers={"Authorization": f"Bearer {self.api_key}"},
@@ -43,6 +50,106 @@ class MinimaxClient:
             response.raise_for_status()
             result = response.json()
             return result["choices"][0]["message"]["content"]
+
+    def _mock_response(self, prompt: str) -> str:
+        """Return a mock LLM response for testing."""
+        if "generate a structured wiki" in prompt.lower():
+            return json.dumps({
+                "apis": {
+                    "inventory": {
+                        "GET /inventory": {
+                            "method": "GET",
+                            "path": "/inventory",
+                            "description": "取得所有庫存項目"
+                        },
+                        "POST /inventory": {
+                            "method": "POST",
+                            "path": "/inventory",
+                            "description": "創建新的庫存項目"
+                        },
+                        "GET /inventory/{id}": {
+                            "method": "GET",
+                            "path": "/inventory/{id}",
+                            "description": "取得單個庫存項目詳細資訊"
+                        }
+                    },
+                    "order": {
+                        "GET /orders": {
+                            "method": "GET",
+                            "path": "/orders",
+                            "description": "取得所有訂單"
+                        },
+                        "POST /orders": {
+                            "method": "POST",
+                            "path": "/orders",
+                            "description": "建立新訂單"
+                        }
+                    }
+                },
+                "metadata": {
+                    "version": "1.0",
+                    "modules": ["inventory", "order"],
+                    "updated_at": "2026-05-09T05:24:25.343753"
+                }
+            })
+        elif "incremental update" in prompt.lower() or "for new files" in prompt.lower():
+            # For incremental updates, preserve existing APIs and add new ones
+            return json.dumps({
+                "apis": {
+                    "inventory": {
+                        "GET /inventory": {
+                            "method": "GET",
+                            "path": "/inventory",
+                            "description": "取得所有庫存項目"
+                        },
+                        "POST /inventory": {
+                            "method": "POST",
+                            "path": "/inventory",
+                            "description": "創建新的庫存項目"
+                        },
+                        "GET /inventory/{id}": {
+                            "method": "GET",
+                            "path": "/inventory/{id}",
+                            "description": "取得單個庫存項目詳細資訊"
+                        }
+                    },
+                    "order": {
+                        "GET /orders": {
+                            "method": "GET",
+                            "path": "/orders",
+                            "description": "取得所有訂單"
+                        },
+                        "POST /orders": {
+                            "method": "POST",
+                            "path": "/orders",
+                            "description": "建立新訂單"
+                        }
+                    },
+                    "payment": {
+                        "POST /payments": {
+                            "method": "POST",
+                            "path": "/payments",
+                            "description": "建立新支付"
+                        },
+                        "GET /payments/{id}": {
+                            "method": "GET",
+                            "path": "/payments/{id}",
+                            "description": "取得支付詳細資訊"
+                        },
+                        "PUT /payments/{id}/status": {
+                            "method": "PUT",
+                            "path": "/payments/{id}/status",
+                            "description": "更新支付狀態"
+                        }
+                    }
+                },
+                "metadata": {
+                    "version": "1.0",
+                    "modules": ["inventory", "order", "payment"],
+                    "updated_at": "2026-05-09T05:24:33.164815"
+                }
+            })
+        return json.dumps({"apis": {}, "metadata": {}})
 
     async def generate_wiki(self, markdowns: dict) -> dict:
         """
