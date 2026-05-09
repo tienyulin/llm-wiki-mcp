@@ -2,6 +2,25 @@
 
 自動從 Markdown API 文檔生成結構化 Wiki，使用 Karpathy 風格的增量學習。
 
+## 系統要求
+
+- **Python 3.11+** （或 Docker & Docker Compose）
+- **Minimax API Key** （可選，支援 Mock 模式）
+- **Git** （用於克隆倉庫）
+
+## 快速導航
+
+根據你的需求選擇對應的指南：
+
+| 我想... | 文檔 |
+|--------|------|
+| 🚀 快速體驗（5 分鐘） | [快速開始](#快速開始) |
+| 💻 本地開發和修改代碼 | [LOCAL_SETUP.md](LOCAL_SETUP.md) |
+| 📊 理解 Wiki 數據結構 | [API_SCHEMA.md](API_SCHEMA.md) |
+| 🔧 自定義 LLM 提示或添加 API | [DEVELOPMENT.md](DEVELOPMENT.md) |
+| 🐛 解決問題和調試 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
+| 🔄 設置 GitLab CI 自動更新 | [GITLAB_SETUP.md](GITLAB_SETUP.md) |
+
 ## 架構
 
 ```
