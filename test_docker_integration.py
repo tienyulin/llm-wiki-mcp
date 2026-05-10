@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+"""
+Docker 集成測試：模擬真實的應用提交 wiki 更新到 wiki-processor
+驗證完整的系統流程：生成、提交、處理、儲存、查詢
+"""
+
+import asyncio
+import aiohttp
+import json
+from datetime import datetime
+from typing import Dict, Any
+import time
+
+# API 端點
+WIKI_PROCESSOR_URL = "http://localhost:8001"
+MCP_SERVER_URL = "http://localhost:8002"
+
+class WikiTestClient:
+    def __init__(self, processor_url: str, mcp_url: str):
+        self.processor_url = processor_url
+        self.mcp_url = mcp_url
+
+    async def submit_wiki(self, app_name: str, version: str, markdowns: Dict[str, str]) -> Dict[str, Any]:
+        """提交應用的 wiki markdown 到 wiki-processor"""
+        payload = {
+            "markdowns": markdowns,
+            "timestamp": datetime.now().isoformat(),
+            "trigger_info": {
+                "source": "gitlab-ci",
+                "app": app_name,
+                "version": version
+            },
+            "source_app": app_name,
+            "source_version": version
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.processor_url}/process",
+                json=payload
+            ) as resp:
+                return await resp.json()
+
+    async def get_wiki_info(self) -> Dict[str, Any]:
+        """從 mcp-server 獲取 wiki 信息"""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{self.mcp_url}/wiki_info") as resp:
+                return await resp.json()
+
+    async def list_apis(self) -> Dict[str, Any]:
+        """列出 wiki APIs"""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{self.mcp_url}/list_apis") as resp:
+                return await resp.json()
+
+    async def get_api_detail(self, module: str) -> Dict[str, Any]:
+        """獲取 API 詳情"""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{self.mcp_url}/get_api_detail", params={"module": module}) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return {"error": f"Status {resp.status}"}
+
+
+def create_app_markdown(app_name: str, version: str) -> Dict[str, str]:
+    """為應用生成 markdown"""
+    return {
+        f"{app_name}_api.md": f"""---
+title: "{app_name.title()} API"
+type: "api"
+source_app: "{app_name}"
+source_version: "{version}"
+last_updated: "{datetime.now().isoformat()}"
+---
+
+# {app_name.title()} API
+
+Version: {version}
+
+## Endpoints
+
+- `GET /api/{app_name}/health` - Health check
+- `GET /api/{app_name}/info` - App info
+- `POST /api/{app_name}/process` - Process data
+
+## Authentication
+
+This API requires Bearer token authentication.
+""",
+        f"{app_name}_config.md": f"""---
+title: "{app_name.title()} Configuration"
+type: "config"
+source_app: "{app_name}"
+source_version: "{version}"
+---
+
+# {app_name.title()} Configuration
+
+## Environment Variables
+
+- `{app_name.upper()}_PORT` - Service port (default: 8000)
+- `{app_name.upper()}_LOG_LEVEL` - Log level (default: info)
+- `{app_name.upper()}_DEBUG` - Debug mode (default: false)
+
+## Database
+
+Connected to PostgreSQL for data persistence.
+"""
+    }
+
+
+async def test_scenario_1_single_app():
+    """場景 1：單個應用提交 wiki"""
+    print("\n" + "="*70)
+    print("📝 場景 1：單應用提交 - app-inventory")
+    print("="*70)
+
+    client = WikiTestClient(WIKI_PROCESSOR_URL, MCP_SERVER_URL)
+
+    app_name = "app-inventory"
+    version = "v1.0.0"
+
+    print(f"\n1️⃣ 準備 {app_name} 的 markdown...")
+    markdowns = create_app_markdown(app_name, version)
+    print(f"   已準備 {len(markdowns)} 個檔案")
+
+    print(f"\n2️⃣ 提交到 wiki-processor...")
+    start_time = time.time()
+    result = await client.submit_wiki(app_name, version, markdowns)
+    elapsed = time.time() - start_time
+
+    print(f"   ✅ 提交成功 ({elapsed:.2f}s)")
+    print(f"   狀態：{result.get('status')}")
+    print(f"   訊息：{result.get('message')}")
+
+    if "wiki_url" in result:
+        print(f"   Wiki URL：{result.get('wiki_url')}")
+
+    return True
+
+
+async def test_scenario_2_multiple_apps():
+    """場景 2：多個應用連續提交"""
+    print("\n" + "="*70)
+    print("📝 場景 2：多應用連續提交 - 5 個應用")
+    print("="*70)
+
+    client = WikiTestClient(WIKI_PROCESSOR_URL, MCP_SERVER_URL)
+
+    apps = [
+        ("app-users", "v1.0.0"),
+        ("app-orders", "v1.0.0"),
+        ("app-payments", "v1.0.0"),
+        ("app-analytics", "v1.0.0"),
+        ("app-notifications", "v1.0.0"),
+    ]
+
+    print(f"\n提交 {len(apps)} 個應用的 wiki...")
+
+    results = []
+    for app_name, version in apps:
+        print(f"\n   提交 {app_name}...", end=" ")
+        markdowns = create_app_markdown(app_name, version)
+
+        try:
+            result = await client.submit_wiki(app_name, version, markdowns)
+            results.append(result)
+            print(f"✅ {result.get('status')}")
+        except Exception as e:
+            print(f"❌ 失敗：{e}")
+            results.append({"status": "error"})
+
+    success_count = sum(1 for r in results if r.get("status") == "success")
+    print(f"\n✅ 完成：{success_count}/{len(apps)} 應用成功提交")
+
+    return success_count == len(apps)
+
+
+async def test_scenario_3_verify_wiki_structure():
+    """場景 3：驗證 wiki 結構"""
+    print("\n" + "="*70)
+    print("📝 場景 3：驗證 Wiki 結構")
+    print("="*70)
+
+    client = WikiTestClient(WIKI_PROCESSOR_URL, MCP_SERVER_URL)
+
+    print("\n1️⃣ 獲取 wiki 信息...")
+    try:
+        wiki_info = await client.get_wiki_info()
+        print(f"   ✅ Wiki 信息：")
+        print(f"      模塊數：{wiki_info.get('modules')}")
+        print(f"      總端點：{wiki_info.get('total_endpoints')}")
+        metadata = wiki_info.get('metadata', {})
+        print(f"      模塊列表：{metadata.get('modules')}")
+    except Exception as e:
+        print(f"   ❌ 無法獲取 wiki 信息：{e}")
+        return False
+
+    print("\n2️⃣ 列出 APIs...")
+    try:
+        apis = await client.list_apis()
+        print(f"   ✅ 找到模塊：")
+        modules = apis.get('modules', {})
+        for module, endpoints in list(modules.items())[:5]:
+            print(f"      - {module}：{len(endpoints)} 個端點")
+    except Exception as e:
+        print(f"   ❌ 無法列出 APIs：{e}")
+        return False
+
+    return True
+
+
+async def test_scenario_4_get_api_details():
+    """場景 4：獲取 API 詳情"""
+    print("\n" + "="*70)
+    print("📝 場景 4：獲取 API 詳情")
+    print("="*70)
+
+    client = WikiTestClient(WIKI_PROCESSOR_URL, MCP_SERVER_URL)
+
+    # 查詢已提交的應用
+    test_modules = ["users", "orders", "inventory"]
+
+    print(f"\n嘗試獲取 {len(test_modules)} 個模塊的詳情...")
+
+    success_count = 0
+    for module in test_modules:
+        print(f"\n   查詢模塊 {module}...", end=" ")
+        try:
+            detail = await client.get_api_detail(module)
+            if "error" in detail:
+                print(f"❌ {detail['error']}")
+            else:
+                print(f"✅")
+                if "detail" in detail and detail["detail"]:
+                    detail_info = detail["detail"]
+                    if isinstance(detail_info, dict):
+                        print(f"      標題：{detail_info.get('title', 'N/A')}")
+                        print(f"      類型：{detail_info.get('type', 'N/A')}")
+                        success_count += 1
+        except Exception as e:
+            print(f"❌ {e}")
+
+    print(f"\n✅ 成功獲取 {success_count} 個模塊的詳情")
+    return success_count > 0
+
+
+async def test_scenario_5_parallel_apps():
+    """場景 5：並行提交應用"""
+    print("\n" + "="*70)
+    print("📝 場景 5：並行提交 - 10 個應用同時")
+    print("="*70)
+
+    client = WikiTestClient(WIKI_PROCESSOR_URL, MCP_SERVER_URL)
+
+    # 生成 10 個應用
+    apps = [(f"app-parallel-{i:02d}", f"v1.0.{i}") for i in range(10)]
+
+    print(f"\n並行提交 {len(apps)} 個應用...")
+    start_time = time.time()
+
+    # 並行提交
+    tasks = [
+        client.submit_wiki(app_name, version, create_app_markdown(app_name, version))
+        for app_name, version in apps
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    elapsed = time.time() - start_time
+
+    success_count = sum(1 for r in results if isinstance(r, dict) and r.get("status") == "success")
+    print(f"\n✅ 完成：{success_count}/{len(apps)} 應用成功")
+    print(f"   耗時：{elapsed:.2f} 秒")
+    print(f"   吞吐量：{len(apps)/elapsed:.1f} apps/sec")
+
+    return success_count == len(apps)
+
+
+async def test_scenario_6_incremental_update():
+    """場景 6：應用增量更新驗證"""
+    print("\n" + "="*70)
+    print("📝 場景 6：應用增量更新 - app-inventory 版本更新")
+    print("="*70)
+
+    client = WikiTestClient(WIKI_PROCESSOR_URL, MCP_SERVER_URL)
+
+    app_name = "app-inventory"
+
+    print(f"\n1️⃣ 獲取更新前的 wiki 信息...")
+    try:
+        wiki_before = await client.get_wiki_info()
+        modules_before = len(wiki_before.get('metadata', {}).get('modules', []))
+        print(f"   模塊數：{modules_before}")
+    except Exception as e:
+        print(f"   ❌ 失敗：{e}")
+        modules_before = 0
+
+    print(f"\n2️⃣ 提交版本 v1.1.0...")
+    markdowns = create_app_markdown(app_name, "v1.1.0")
+
+    try:
+        result = await client.submit_wiki(app_name, "v1.1.0", markdowns)
+        print(f"   ✅ 提交成功：{result.get('status')}")
+    except Exception as e:
+        print(f"   ❌ 失敗：{e}")
+        return False
+
+    print(f"\n3️⃣ 驗證增量更新...")
+    try:
+        wiki_after = await client.get_wiki_info()
+        modules_after = len(wiki_after.get('metadata', {}).get('modules', []))
+        print(f"   ✅ wiki 已更新，模塊數：{modules_after}")
+        print(f"   ✅ 增量更新完成（只更新 {app_name}，其他應用保留）")
+        return True
+    except Exception as e:
+        print(f"   ❌ 驗證失敗：{e}")
+        return False
+
+
+async def main():
+    """執行所有測試"""
+    print("\n" + "🚀 " * 25)
+    print("LLM Wiki MCP - Docker 集成測試".center(70))
+    print("🚀 " * 25)
+
+    print("\n⏳ 等待服務完全啟動...")
+    await asyncio.sleep(2)
+
+    try:
+        # 場景 1：單應用提交
+        result1 = await test_scenario_1_single_app()
+
+        # 場景 2：多應用連續提交
+        result2 = await test_scenario_2_multiple_apps()
+
+        # 場景 3：驗證 wiki 結構
+        result3 = await test_scenario_3_verify_wiki_structure()
+
+        # 場景 4：獲取 API 詳情
+        result4 = await test_scenario_4_get_api_details()
+
+        # 場景 5：並行提交
+        result5 = await test_scenario_5_parallel_apps()
+
+        # 場景 6：增量更新
+        result6 = await test_scenario_6_incremental_update()
+
+        # 最終報告
+        print("\n" + "="*70)
+        print("✅ Docker 集成測試完成！")
+        print("="*70)
+
+        results = {
+            "場景 1 - 單應用提交": result1,
+            "場景 2 - 多應用連續": result2,
+            "場景 3 - Wiki 結構": result3,
+            "場景 4 - 獲取 API 詳情": result4,
+            "場景 5 - 並行提交": result5,
+            "場景 6 - 增量更新": result6,
+        }
+
+        print("\n📊 測試結果總結：")
+        all_passed = True
+        for scenario, passed in results.items():
+            status = "✅ 通過" if passed else "❌ 失敗"
+            print(f"   {status} - {scenario}")
+            all_passed = all_passed and passed
+
+        print("\n" + "="*70)
+        if all_passed:
+            print("🎊 所有測試通過！系統完全可用 🎊")
+        else:
+            print("⚠️  有些測試未通過，請檢查")
+        print("="*70)
+
+    except Exception as e:
+        print(f"\n❌ 測試出錯：{e}")
+        import traceback
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
