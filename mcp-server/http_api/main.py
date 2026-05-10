@@ -5,9 +5,11 @@ FastAPI with async handlers for concurrent requests.
 
 Exposes wiki.json from Minio as REST API.
 Designed for team use with multiple concurrent users.
+Supports application-level cache invalidation for multi-source wiki updates.
 """
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -18,6 +20,60 @@ from storage.minio_client import MinioReader
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# In-Memory Cache Management
+# ============================================================================
+
+class WikiCache:
+    """Simple in-memory cache for wiki data with TTL support."""
+
+    def __init__(self, ttl_seconds: int = 3600):
+        self.ttl = ttl_seconds
+        self._cache: dict = {}
+        self._timestamps: dict = {}
+
+    def get(self, key: str) -> any:
+        """Get value if not expired."""
+        if key not in self._cache:
+            return None
+        if time.time() - self._timestamps[key] > self.ttl:
+            del self._cache[key]
+            del self._timestamps[key]
+            return None
+        return self._cache[key]
+
+    def set(self, key: str, value: any):
+        """Set value with current timestamp."""
+        self._cache[key] = value
+        self._timestamps[key] = time.time()
+
+    def invalidate_by_source(self, source_app: str = None):
+        """Invalidate cache entries related to a source app."""
+        if source_app:
+            # Invalidate app-specific entries
+            keys_to_delete = [
+                k for k in self._cache.keys()
+                if source_app in str(k)
+            ]
+            for k in keys_to_delete:
+                del self._cache[k]
+                del self._timestamps[k]
+            logger.info(f"Invalidated {len(keys_to_delete)} cache entries for {source_app}")
+        else:
+            # Clear all
+            self._cache.clear()
+            self._timestamps.clear()
+            logger.info("Cleared entire cache")
+
+    def clear(self):
+        """Clear entire cache."""
+        self._cache.clear()
+        self._timestamps.clear()
+
+
+wiki_cache = WikiCache(ttl_seconds=3600)
 
 
 # ============================================================================
@@ -42,6 +98,16 @@ class SearchApisResponse(BaseModel):
 
 class ApiDetailResponse(BaseModel):
     detail: dict | None
+
+
+class CacheInvalidateRequest(BaseModel):
+    source_app: str = None  # e.g., "app-inventory". If None, clears all.
+
+
+class CacheInvalidateResponse(BaseModel):
+    status: str
+    message: str
+    invalidated_entries: int
 
 
 # ============================================================================
@@ -158,6 +224,33 @@ async def wiki_info():
         "total_endpoints": total_endpoints,
         "metadata": wiki.get("metadata", {}),
     }
+
+
+@app.post("/cache/invalidate", response_model=CacheInvalidateResponse)
+async def invalidate_cache(request: CacheInvalidateRequest = None):
+    """
+    Invalidate wiki cache (called by wiki-processor after updates).
+
+    If source_app is provided, only invalidates entries related to that app.
+    If source_app is None or not provided, clears entire cache.
+
+    This endpoint is called by wiki-processor after successful wiki update.
+    """
+    source_app = request.source_app if request else None
+    prev_size = len(wiki_cache._cache)
+
+    wiki_cache.invalidate_by_source(source_app)
+
+    curr_size = len(wiki_cache._cache)
+    invalidated = prev_size - curr_size
+
+    logger.info(f"Cache invalidated: {invalidated} entries removed (source_app={source_app})")
+
+    return CacheInvalidateResponse(
+        status="ok",
+        message=f"Cache invalidated for {source_app or 'all'}",
+        invalidated_entries=invalidated,
+    )
 
 
 if __name__ == "__main__":

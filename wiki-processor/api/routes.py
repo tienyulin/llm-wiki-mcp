@@ -32,9 +32,19 @@ processor = WikiProcessor(storage=storage, llm=llm)
 
 @router.post("/process", response_model=ProcessResponse)
 async def process(request: ProcessRequest):
-    """Process markdown files and update the wiki."""
+    """Process markdown files and update the wiki.
+
+    Supports both full wiki generation and app-level incremental updates:
+    - If source_app is provided: performs app-level update (only updates that app's files)
+    - If source_app is None: performs full wiki update from all markdowns
+    """
     try:
-        return await processor.process(request.markdowns, request.timestamp)
+        return await processor.process(
+            markdowns=request.markdowns,
+            timestamp=request.timestamp,
+            source_app=request.source_app,
+            source_version=request.source_version,
+        )
     except HTTPException:
         raise
     except Exception as e:

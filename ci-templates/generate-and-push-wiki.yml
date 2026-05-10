@@ -1,0 +1,194 @@
+# GitLab CI/CD Template: Generate and Push Wiki
+# ============================================================================
+# 使用說明：
+# 在任何應用的 .gitlab-ci.yml 中包含此模板：
+#
+# include:
+#   - remote: 'https://gitlab.com/YOUR_ORG/ci-scripts/raw/main/templates/generate-and-push-wiki.yml'
+#
+# 或本地相對路徑：
+#
+# include:
+#   - local: '/ci-templates/generate-and-push-wiki.yml'
+#
+# ============================================================================
+
+stages:
+  - generate
+  - push
+
+variables:
+  WIKI_PROCESSOR_URL: "${WIKI_PROCESSOR_URL:-http://localhost:8001}"
+  WIKI_PROCESSOR_TIMEOUT: "300"
+
+# ============================================================================
+# Step 1: Generate Markdown Documentation from Source Code
+# ============================================================================
+
+generate_docs:
+  stage: generate
+  image: python:3.14-slim
+  script:
+    - pip install pyyaml httpx
+
+    # Run generate_docs.py (應用應提供此腳本)
+    - |
+      if [ -f "scripts/generate_docs.py" ]; then
+        python scripts/generate_docs.py
+      else
+        echo "Error: scripts/generate_docs.py not found"
+        exit 1
+      fi
+
+    # 輸出應該在 /tmp/app_markdowns.json 或 docs/ 目錄
+    - |
+      if [ -d "docs" ]; then
+        echo "Documentation generated in docs/"
+        ls -la docs/
+      else
+        echo "Error: docs directory not found after generation"
+        exit 1
+      fi
+
+  artifacts:
+    paths:
+      - docs/
+    expire_in: 1 day
+
+  only:
+    - main
+
+  rules:
+    - changes:
+        - src/**/*.py
+        - docs/**
+        - scripts/generate_docs.py
+      when: always
+
+# ============================================================================
+# Step 2: Push Documentation to Wiki Processor
+# ============================================================================
+
+push_wiki:
+  stage: push
+  image: python:3.14-slim
+  script:
+    - pip install httpx pyyaml
+
+    # 蒐集 markdown 文件
+    - |
+      python3 << 'PYEOF'
+      import os
+      import json
+      import glob
+
+      markdowns = {}
+      docs_dir = "docs"
+
+      # 蒐集所有 markdown 文件
+      for filepath in glob.glob(f"{docs_dir}/**/*.md", recursive=True):
+        with open(filepath, 'r', encoding='utf-8') as f:
+          content = f.read()
+          key = filepath.replace(f"{docs_dir}/", "")
+          markdowns[key] = content
+
+      if not markdowns:
+        print("Error: No markdown files found in docs/")
+        exit(1)
+
+      print(f"Found {len(markdowns)} markdown files")
+
+      # 寫到臨時文件
+      with open("/tmp/markdowns.json", "w") as f:
+        json.dump(markdowns, f)
+
+      PYEOF
+
+    # 發送到 wiki-processor
+    - |
+      python3 << 'PYEOF'
+      import json
+      import httpx
+      import os
+      from datetime import datetime, timezone
+
+      # 讀取 markdown 文件
+      with open("/tmp/markdowns.json", "r") as f:
+        markdowns = json.load(f)
+
+      # 構造請求體
+      payload = {
+        "markdowns": markdowns,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "trigger_info": {
+          "repo": os.getenv("CI_PROJECT_PATH"),
+          "branch": os.getenv("CI_COMMIT_BRANCH"),
+          "commit_sha": os.getenv("CI_COMMIT_SHA"),
+          "pipeline_url": os.getenv("CI_PIPELINE_URL")
+        },
+        "source_app": os.getenv("CI_PROJECT_NAME"),  # 應用名稱
+        "source_version": os.getenv("CI_COMMIT_SHA")  # git commit SHA
+      }
+
+      # 發送請求
+      wiki_processor_url = os.getenv("WIKI_PROCESSOR_URL")
+      timeout = int(os.getenv("WIKI_PROCESSOR_TIMEOUT", "300"))
+
+      print(f"Sending wiki update to {wiki_processor_url}/process")
+      print(f"  Files: {len(markdowns)}")
+      print(f"  Source app: {payload['source_app']}")
+
+      client = httpx.AsyncClient()
+
+      async def send_request():
+        response = await client.post(
+          f"{wiki_processor_url}/process",
+          json=payload,
+          timeout=timeout
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        print("Wiki processor response:")
+        print(f"  Status: {result.get('status')}")
+        print(f"  Message: {result.get('message')}")
+        print(f"  Files updated: {len(result.get('files_updated', []))}")
+        print(f"  Processing time: {result.get('processing_time_ms')}ms")
+
+        if result.get('validation_errors'):
+          print(f"  Errors: {result.get('validation_errors')}")
+
+      import asyncio
+      asyncio.run(send_request())
+
+      PYEOF
+
+  needs:
+    - job: generate_docs
+      artifacts: true
+
+  only:
+    - main
+
+  rules:
+    - changes:
+        - src/**/*.py
+        - docs/**
+        - scripts/generate_docs.py
+      when: always
+
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+      - api_failure
+
+# ============================================================================
+# 環境變數設置
+# ============================================================================
+
+# 在 GitLab 項目或群組變數設置：
+# WIKI_PROCESSOR_URL: http://wiki-processor:8001  (容器環境)
+#                  or http://localhost:8001       (本地測試)
+# WIKI_PROCESSOR_TIMEOUT: 300 (秒)
