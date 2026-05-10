@@ -4,7 +4,7 @@ import os
 from fastapi import APIRouter, HTTPException
 
 from models.schemas import HealthResponse, ProcessRequest, ProcessResponse
-from services.llm import MinimaxClient
+from services.llm import LLMProvider, LLMProviderFactory, load_from_env
 from services.processor import WikiProcessor
 from storage.minio_client import MinioStorage
 
@@ -18,11 +18,10 @@ router = APIRouter()
 
 storage = MinioStorage()
 
-_api_key = os.getenv("MINIMAX_API_KEY", "dummy-key")
-if _api_key == "dummy-key":
-    logger.warning("MINIMAX_API_KEY not set; LLM calls will fail")
+_llm_config = load_from_env()
+llm: LLMProvider = LLMProviderFactory.create(_llm_config)
+logger.info(f"LLM provider initialized: {_llm_config.provider} / {_llm_config.model}")
 
-llm = MinimaxClient(api_key=_api_key)
 processor = WikiProcessor(storage=storage, llm=llm)
 
 
@@ -71,9 +70,9 @@ async def status():
 
 @router.get("/health", response_model=HealthResponse)
 async def health():
-    """Health check: verify Minio connectivity and API key presence."""
+    """Health check: verify Minio connectivity and LLM configuration."""
     minio_ok = False
-    minimax_ok = False
+    llm_ok = False
 
     try:
         storage.client.bucket_exists(storage.bucket)
@@ -82,13 +81,16 @@ async def health():
         logger.error(f"Minio health check failed: {e}")
 
     try:
-        key = os.getenv("MINIMAX_API_KEY", "")
-        minimax_ok = bool(key and key != "dummy-key")
+        # Check API key is present (actual connectivity check is deferred)
+        llm_ok = bool(_llm_config.api_key and _llm_config.api_key not in ("", "not-required", "dummy-key"))
+        if os.getenv("MOCK_LLM", "false").lower() == "true":
+            llm_ok = True  # mock mode is always "ok"
     except Exception as e:
-        logger.error(f"Minimax health check failed: {e}")
+        logger.error(f"LLM health check failed: {e}")
 
     return HealthResponse(
         status="ok" if minio_ok else "degraded",
         minio_connected=minio_ok,
-        minimax_accessible=minimax_ok,
+        llm_configured=llm_ok,
+        llm_provider=_llm_config.provider,
     )

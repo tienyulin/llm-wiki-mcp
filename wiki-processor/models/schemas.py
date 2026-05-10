@@ -27,4 +27,11 @@ class ProcessResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     minio_connected: bool
-    minimax_accessible: bool
+    llm_configured: bool
+    llm_provider: str = "unknown"
+    # Backward-compat alias (mirrors llm_configured)
+    minimax_accessible: Optional[bool] = None
+
+    def model_post_init(self, __context):
+        if self.minimax_accessible is None:
+            self.minimax_accessible = self.llm_configured

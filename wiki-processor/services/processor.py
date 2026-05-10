@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 
 from models.schemas import ProcessResponse
-from services.llm import MinimaxClient
+from services.llm import LLMProvider
 from storage.minio_client import MinioStorage
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ _DEFAULT_WIKI = {
 class WikiProcessor:
     """Orchestrates the full wiki-processing pipeline with app-level incremental updates."""
 
-    def __init__(self, storage: MinioStorage, llm: MinimaxClient):
+    def __init__(self, storage: MinioStorage, llm: LLMProvider):
         self.storage = storage
         self.llm = llm
 
