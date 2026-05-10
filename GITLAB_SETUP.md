@@ -1,18 +1,34 @@
-# GitLab CI 設置指南：送 Markdown 給 Processor
+# GitLab CI/CD 集成指南：應用直接提交 Wiki
+
+**新架構**：應用獨立生成文檔 → 直接 POST 到 wiki-processor → 應用級增量更新
+
+不再需要中央 markdown repo，每個應用自主管理文檔。
+
+---
 
 ## 快速開始（5 分鐘）
 
-### 1️⃣ 在中央 Markdown Repo 建立目錄結構
+### 前置條件
 
-```bash
-your-markdown-repo/
-├── .gitlab-ci.yml        # ← GitLab CI 配置（新建）
-├── markdowns/            # ← 你的 markdown 文件
-│   ├── api-users.md
-│   ├── api-orders.md
-│   └── api-products.md
-└── README.md
+- ✅ wiki-processor 運行在 http://wiki-processor:8001（或你的服務器）
+- ✅ ci-scripts repo 已含有通用 CI 模板：`templates/generate-and-push-wiki.yml`
+- ✅ 你的應用有 `scripts/` 目錄
+
+### 步驟 1：在應用中添加 `.gitlab-ci.yml`
+
+```yaml
+# fastapi-a/.gitlab-ci.yml 或任何應用
+include:
+  - remote: 'https://gitlab.com/t.tienyulin/ci-scripts/raw/master/templates/generate-and-push-wiki.yml'
+
+stages:
+  - generate
+  - push
+
+# 其他 CI 配置（如果有）...
 ```
+
+**就這樣！** 無需修改模板，直接 include。
 
 ### 2️⃣ 複製 `.gitlab-ci.yml` 到 Repo 根目錄
 
