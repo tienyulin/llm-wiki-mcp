@@ -357,12 +357,23 @@ spec:
 | wiki-processor 超時 | 增大 `timeout` 參數；檢查 LLM API 響應時間 |
 | mcp-server 返回空 wiki | 先執行 `/process` endpoint 生成 wiki.json |
 
-## 文檔
+## 📚 文檔
 
-- [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) — 完整架構與設計理念
-- [GITLAB_SETUP.md](GITLAB_SETUP.md) — GitLab CI 集成步驟
-- `ci-templates/generate-and-push-wiki.yml` — 通用 CI 模板
-- `tests/test_poc_100_apps.py` — POC 測試腳本
+完整文檔請參考 [docs/README.md](docs/README.md)
+
+**常用連結：**
+- [本地設置指南](docs/guides/local-setup.md) — 環境配置和快速開始
+- [開發指南](docs/guides/development.md) — 代碼結構和擴展
+- [GitLab CI 集成](docs/guides/gitlab-setup.md) — CI/CD 配置步驟
+- [LLM 提供商架構](docs/architecture/llm-provider-abstraction.md) — 多提供商設計
+- [API 文檔](docs/api/schema.md) — 完整 API 端點參考
+- [故障排除](docs/troubleshooting.md) — 常見問題和解決方案
+
+**測試文檔：**
+- [測試指南](tests/README.md) — 如何運行測試、組織結構
+- 單元測試：`wiki-processor/tests/` 和 `mcp-server/tests/`
+- 集成測試：`tests/integration/`
+- 壓力測試：`tests/stress/`
 
 ## 架構圖
 
