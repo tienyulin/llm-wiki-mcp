@@ -34,6 +34,7 @@ Claude / LLM
 | **審計日誌** | 所有更新記錄在 wiki-audit-log.jsonl (NDJSON 格式) |
 | **智能緩存** | mcp-server 內存緩存 + 應用級別的緩存失效 |
 | **統一 CI 模板** | 一份 .gitlab-ci.yml include 就搞定，應用無需修改 |
+| **多 LLM 提供商** | 支持 Minimax、OpenAI、Anthropic、Gemini、Groq、Azure、自架 LLM（Ollama/vLLM），透過 `LLM_PROVIDER` 切換 |
 
 ## 快速開始
 
@@ -43,14 +44,15 @@ Claude / LLM
 # 複製環境變數
 cp .env-example .env
 
-# 編輯 .env，填入你的 Minimax API key
+# 編輯 .env，填入你選用的 LLM provider API key
 nano .env
 ```
 
 `.env` 必要變數：
 
 ```env
-MINIMAX_API_KEY=your-key-here
+LLM_PROVIDER=minimax         # 預設；可換成 openai / anthropic / gemini / groq / azure / openai-compatible
+LLM_API_KEY=your-key-here    # 舊的 MINIMAX_API_KEY 仍向後相容
 MINIO_ROOT_USER=minioadmin
 MINIO_ROOT_PASSWORD=minioadmin
 ```
@@ -253,8 +255,11 @@ push_wiki:
 ## 環境變數
 
 ```env
-# Minimax LLM API
-MINIMAX_API_KEY=                   # 從 https://platform.minimaxi.com 取得
+# LLM 提供商設定（擇一，詳見 .env-example）
+LLM_PROVIDER=minimax           # minimax / openai / anthropic / gemini / groq / azure / openai-compatible
+LLM_API_KEY=your-key-here      # API 金鑰（舊的 MINIMAX_API_KEY 仍可作為備援）
+LLM_MODEL=MiniMax-M2.7         # 各提供商的預設模型見 .env-example
+# LLM_BASE_URL=                # 僅 openai-compatible（Ollama/vLLM/LM Studio）需要
 
 # Minio 存儲
 MINIO_ENDPOINT=minio:9000
@@ -264,8 +269,10 @@ MINIO_BUCKET=wiki-data
 MINIO_SECURE=false
 
 # 本地測試時使用
-MOCK_LLM=true                      # 模擬 LLM（不呼叫真實 API）
+MOCK_LLM=true                  # 模擬 LLM，不呼叫真實 API
 ```
+
+> 完整的 7 種提供商配置範例（OpenAI、Anthropic、Gemini、Groq、Azure、Ollama 等）請見 [`.env-example`](.env-example)。
 
 ## GitLab 配置
 
@@ -319,11 +326,13 @@ spec:
     ports:
     - containerPort: 8001
     env:
-    - name: MINIMAX_API_KEY
+    - name: LLM_PROVIDER
+      value: minimax
+    - name: LLM_API_KEY
       valueFrom:
         secretKeyRef:
           name: wiki-secrets
-          key: minimax-api-key
+          key: llm-api-key
 
 # mcp-server Deployment
 apiVersion: apps/v1
@@ -343,7 +352,7 @@ spec:
 
 | 問題 | 解決 |
 |------|------|
-| `POST /process` 返回 null | 檢查 MINIMAX_API_KEY 是否正確；或使用 `MOCK_LLM=true` 測試 |
+| `POST /process` 返回 null | 檢查 `LLM_API_KEY` 是否正確；或使用 `MOCK_LLM=true` 測試 |
 | Minio 連線失敗 | 確認 `docker-compose ps` 中 minio 運行；或檢查 MINIO_ENDPOINT |
 | wiki-processor 超時 | 增大 `timeout` 參數；檢查 LLM API 響應時間 |
 | mcp-server 返回空 wiki | 先執行 `/process` endpoint 生成 wiki.json |
