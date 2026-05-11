@@ -12,11 +12,19 @@
 
 2. **Make changes and commit** — on the feature branch
 
-3. **Open PR** — feature branch → `main`
+3. **Update documentation** — if code changes affect functionality
+   - Update relevant guide in `docs/guides/`
+   - Update API docs in `docs/api/schema.md` if endpoints changed
+   - Update architecture docs in `docs/architecture/` if design changed
+   - Add entry to `docs/test-results.md` if test results changed
+   - **IMPORTANT:** Every code change should have a corresponding doc update
+
+4. **Open PR** — feature branch → `main`
    - Use `mcp__github__create_pull_request` with `head=your-branch` and `base=main`
    - Include clear description of changes
+   - Include what documentation was updated
 
-4. **Merge** — only after PR is opened
+5. **Merge** — only after PR is opened
    - Use `mcp__github__merge_pull_request` on the PR
    - Prefer "squash" method for clean history
 
@@ -24,6 +32,7 @@
 - ❌ Push directly to `main` via `git push origin main`
 - ❌ Use `mcp__github__push_files` targeting `main` directly
 - ❌ Merge without opening a PR first
+- ❌ Code changes without updating documentation
 
 ### Example Workflow
 
@@ -48,6 +57,36 @@ mcp__github__create_pull_request \
 # Merge after review
 mcp__github__merge_pull_request --pullNumber 27
 ```
+
+## Documentation Sync Checklist
+
+**Before opening a PR, verify documentation is updated:**
+
+| Change Type | What to Update | File Location |
+|------------|-----------------|-------------------|
+| **New LLM provider** | Architecture design, setup instructions | `docs/architecture/llm-provider-abstraction.md`, `docs/guides/local-setup.md` |
+| **API endpoint change** | Endpoint reference, schema | `docs/api/schema.md` |
+| **Setup/installation** | Local setup guide | `docs/guides/local-setup.md` |
+| **Development process** | Development guide | `docs/guides/development.md` |
+| **GitLab CI change** | GitLab setup guide | `docs/guides/gitlab-setup.md` |
+| **Bug fix/troubleshooting** | Troubleshooting guide | `docs/troubleshooting.md` |
+| **New test feature** | Test documentation | `tests/README.md` |
+| **Performance test** | Test results | `docs/test-results.md` |
+| **Architecture decision** | Architecture docs | `docs/architecture/` |
+
+**Example PR description:**
+```
+## Changes
+- Added new OpenAI provider support
+- Updated config.py to support LLM_PROVIDER env var
+
+## Documentation Updated
+- ✅ Updated docs/architecture/llm-provider-abstraction.md with provider design
+- ✅ Updated docs/guides/local-setup.md with OpenAI setup instructions
+- ✅ Updated .env-example with OpenAI configuration
+```
+
+---
 
 ## Environment
 
