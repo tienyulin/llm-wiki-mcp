@@ -94,19 +94,21 @@ class PGReader:
         ]
 
     async def keyword_search(self, query: str, limit: int = 100) -> list[dict]:
-        """Indexed replacement for the O(n) wiki scan; embed_text includes
-        method/path/params so recall matches the old full-detail haystack."""
+        """Indexed replacement for the O(n) wiki scan.
+
+        embed_text concatenates module | api_key | endpoint | description |
+        params, so one trigram-indexed ILIKE covers the same haystack as the
+        old full-detail substring scan."""
         pattern = f"%{query.strip()}%"
         rows = await self._fetch(
             """
             SELECT module, api_key, description
             FROM api_entries
-            WHERE module ILIKE %s OR api_key ILIKE %s
-               OR description ILIKE %s OR embed_text ILIKE %s
+            WHERE embed_text ILIKE %s
             ORDER BY module, api_key
             LIMIT %s
             """,
-            (pattern, pattern, pattern, pattern, limit),
+            (pattern, limit),
         )
         return [{"module": m, "api_key": k, "description": d} for m, k, d in rows]
 

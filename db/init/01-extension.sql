@@ -3,3 +3,4 @@
 -- Table DDL is NOT here — wiki-processor's PGVectorStore.ensure_schema()
 -- owns it (single source, works against any PG that has pgvector installed).
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;

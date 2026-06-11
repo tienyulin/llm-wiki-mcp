@@ -43,9 +43,6 @@ CREATE TABLE IF NOT EXISTS api_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_api_entries_source_app ON api_entries (source_app);
 CREATE INDEX IF NOT EXISTS idx_api_entries_module     ON api_entries (module);
-CREATE INDEX IF NOT EXISTS idx_api_entries_embedding
-    ON api_entries USING hnsw (embedding vector_cosine_ops);
-
 CREATE TABLE IF NOT EXISTS index_state (
     key        TEXT PRIMARY KEY,
     value      JSONB NOT NULL,
@@ -57,6 +54,24 @@ CREATE TABLE IF NOT EXISTS app_sync (
     synced_at      TIMESTAMPTZ NOT NULL,
     source_version TEXT
 );
+"""
+
+# Search indexes, separate from the tables: rebuild() drops and recreates
+# them around its bulk insert — building HNSW once over the full data set is
+# far cheaper than maintaining it row by row for tens of thousands of rows.
+_SEARCH_INDEXES_SQL = """
+CREATE INDEX IF NOT EXISTS idx_api_entries_embedding
+    ON api_entries USING hnsw (embedding vector_cosine_ops);
+-- Trigram GIN makes ILIKE '%term%' indexed; embed_text concatenates
+-- module | api_key | endpoint | description | params, so keyword search
+-- over this one column covers the same haystack as the old wiki scan.
+CREATE INDEX IF NOT EXISTS idx_api_entries_embed_text_trgm
+    ON api_entries USING gin (embed_text gin_trgm_ops);
+"""
+
+_DROP_SEARCH_INDEXES_SQL = """
+DROP INDEX IF EXISTS idx_api_entries_embedding;
+DROP INDEX IF EXISTS idx_api_entries_embed_text_trgm;
 """
 
 _INSERT_ENTRY_SQL = """
@@ -102,6 +117,7 @@ class PGVectorStore:
         )
         self._open_lock = asyncio.Lock()
         self._opened = False
+        self._schema_lock = asyncio.Lock()
 
     async def _ensure_open(self):
         if self._opened:
@@ -131,19 +147,21 @@ class PGVectorStore:
         """
         await self._ensure_open()
         async with self._pool.connection() as conn:
-            try:
-                await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            except Exception:
-                # Not superuser — fine if the extension already exists.
-                await conn.rollback()
-                cur = await conn.execute(
-                    "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
-                )
-                if await cur.fetchone() is None:
-                    raise ConfigurationException(
-                        "pgvector extension is not installed and this role "
-                        "cannot create it; run db/init/01-extension.sql as superuser"
+            for extension in ("vector", "pg_trgm"):
+                try:
+                    await conn.execute(f"CREATE EXTENSION IF NOT EXISTS {extension}")
+                except Exception:
+                    # Not superuser — fine if the extension already exists.
+                    await conn.rollback()
+                    cur = await conn.execute(
+                        "SELECT 1 FROM pg_extension WHERE extname = %s", (extension,)
                     )
+                    if await cur.fetchone() is None:
+                        raise ConfigurationException(
+                            f"The {extension} extension is not installed and this "
+                            f"role cannot create it; run db/init/01-extension.sql "
+                            f"as superuser"
+                        )
 
             existing_dim = await self._embedding_dim(conn)
             if existing_dim is not None and existing_dim != dim:
@@ -154,14 +172,20 @@ class PGVectorStore:
                 )
             if existing_dim is None:
                 await conn.execute(_TABLES_SQL.format(dim=int(dim)))
+            await conn.execute(_SEARCH_INDEXES_SQL)
             await conn.commit()
 
     async def ensure_schema_once(self):
-        """ensure_schema(self.dim), cached after the first success."""
+        """ensure_schema(self.dim), cached after the first success.
+
+        Locked: a concurrent burst (100 simultaneous /process) must run the
+        DDL exactly once, not as a thundering herd of CREATE INDEX checks."""
         if self._schema_ready:
             return
-        await self.ensure_schema(self.dim)
-        self._schema_ready = True
+        async with self._schema_lock:
+            if not self._schema_ready:
+                await self.ensure_schema(self.dim)
+                self._schema_ready = True
 
     async def _embedding_dim(self, conn) -> int | None:
         """Dimension of the existing embedding column, or None if no table.
@@ -201,6 +225,10 @@ class PGVectorStore:
         await self._ensure_open()
         async with self._pool.connection() as conn:
             async with conn.transaction():
+                # The index is rebuildable from wiki.json, so losing the last
+                # few commits in a crash is repairable — skipping the WAL
+                # fsync per app sync is a safe ~10x latency win under bursts.
+                await conn.execute("SET LOCAL synchronous_commit = off")
                 cur = await conn.execute(
                     """
                     INSERT INTO app_sync (source_app, synced_at, source_version)
@@ -244,6 +272,11 @@ class PGVectorStore:
         total = 0
         async with self._pool.connection() as conn:
             async with conn.transaction():
+                await conn.execute("SET LOCAL synchronous_commit = off")
+                # Bulk path: drop search indexes, insert everything, rebuild
+                # them once at the end (row-by-row HNSW maintenance dominates
+                # rebuild time past a few thousand entries).
+                await conn.execute(_DROP_SEARCH_INDEXES_SQL)
                 await conn.execute("TRUNCATE api_entries, app_sync")
                 for source_app, rows in apps.items():
                     version = versions.get(source_app, "unknown")
@@ -259,6 +292,7 @@ class PGVectorStore:
                     "last_rebuild",
                     {"at": now.isoformat(), "apps": len(apps), "entries": total},
                 )
+                await conn.execute(_SEARCH_INDEXES_SQL)
         return total
 
     async def _insert_rows(self, conn, source_app: str, source_version: str, rows: list[dict]):
