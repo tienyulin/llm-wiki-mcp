@@ -53,10 +53,13 @@ class WikiTestClient:
             async with session.get(f"{self.mcp_url}/list_apis") as resp:
                 return await resp.json()
 
-    async def get_api_detail(self, module: str) -> Dict[str, Any]:
-        """獲取 API 詳情"""
+    async def get_api_detail(self, module: str, api_key: str) -> Dict[str, Any]:
+        """獲取 API 詳情（module + api_key 為必填參數）"""
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{self.mcp_url}/get_api_detail", params={"module": module}) as resp:
+            async with session.get(
+                f"{self.mcp_url}/get_api_detail",
+                params={"module": module, "api_key": api_key},
+            ) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 return {"error": f"Status {resp.status}"}
@@ -218,31 +221,35 @@ async def test_scenario_4_get_api_details():
 
     client = WikiTestClient(WIKI_PROCESSOR_URL, MCP_SERVER_URL)
 
-    # 查詢已提交的應用
-    test_modules = ["users", "orders", "inventory"]
+    # 從 wiki 實際內容取得 (module, api_key) 配對再查詳情
+    listing = await client.list_apis()
+    modules = listing.get("modules", {})
+    pairs = [(m, keys[0]) for m, keys in modules.items() if keys][:3]
 
-    print(f"\n嘗試獲取 {len(test_modules)} 個模塊的詳情...")
+    if not pairs:
+        print("\n❌ wiki 中沒有任何 API 可查詢")
+        return False
+
+    print(f"\n嘗試獲取 {len(pairs)} 個 API 的詳情...")
 
     success_count = 0
-    for module in test_modules:
-        print(f"\n   查詢模塊 {module}...", end=" ")
+    for module, api_key in pairs:
+        print(f"\n   查詢 {module} / {api_key}...", end=" ")
         try:
-            detail = await client.get_api_detail(module)
+            detail = await client.get_api_detail(module, api_key)
             if "error" in detail:
                 print(f"❌ {detail['error']}")
+            elif detail.get("detail"):
+                print("✅")
+                print(f"      描述：{detail['detail'].get('description', 'N/A')}")
+                success_count += 1
             else:
-                print(f"✅")
-                if "detail" in detail and detail["detail"]:
-                    detail_info = detail["detail"]
-                    if isinstance(detail_info, dict):
-                        print(f"      標題：{detail_info.get('title', 'N/A')}")
-                        print(f"      類型：{detail_info.get('type', 'N/A')}")
-                        success_count += 1
+                print("❌ 空的 detail")
         except Exception as e:
             print(f"❌ {e}")
 
-    print(f"\n✅ 成功獲取 {success_count} 個模塊的詳情")
-    return success_count > 0
+    print(f"\n✅ 成功獲取 {success_count} 個 API 的詳情")
+    return success_count == len(pairs)
 
 
 async def test_scenario_5_parallel_apps():

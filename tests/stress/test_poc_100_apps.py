@@ -22,7 +22,7 @@ sys.path.insert(0, "/home/user/llm-wiki-mcp/wiki-processor")
 
 from models.schemas import ProcessRequest, ProcessResponse
 from services.processor import WikiProcessor
-from services.llm import MinimaxClient
+from services.llm.providers.minimax import MinimaxProvider
 from storage.minio_client import MinioStorage
 
 
@@ -96,8 +96,8 @@ def create_mock_storage() -> MagicMock:
 
 
 def create_mock_llm() -> AsyncMock:
-    """建立模擬的 MinimaxClient。"""
-    llm = AsyncMock(spec=MinimaxClient)
+    """建立模擬的 MinimaxProvider。"""
+    llm = AsyncMock(spec=MinimaxProvider)
 
     async def mock_generate_wiki(markdowns: dict) -> dict[str, str]:
         """模擬首次 wiki 生成。"""

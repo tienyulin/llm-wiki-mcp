@@ -451,10 +451,11 @@ uvicorn http_api/main:app --log-level debug
 ### 使用 Python 交互式調試
 
 ```bash
-# 在 Python REPL 中測試
+# 在 Python REPL 中測試（從 wiki-processor 目錄執行）
 python3
->>> from wiki_processor.services.llm import MinimaxClient
->>> client = MinimaxClient(api_key="...")
+>>> from services.llm import LLMConfig, LLMProviderFactory
+>>> config = LLMConfig(provider="minimax", api_key="...", model="MiniMax-M2.7")
+>>> llm = LLMProviderFactory.create(config)
 >>> # 測試代碼
 ```
 
@@ -467,6 +468,70 @@ env | grep MINIO
 
 # Docker 容器中
 docker-compose exec wiki-processor env | grep MINIMAX
+```
+
+---
+
+## 並發更新問題（2026-06-11 修復）
+
+### 症狀：多個應用同時提交時，部分更新遺失
+
+**原因：** `WikiProcessor.process()` 的 read-modify-write 流程橫跨一次 awaited
+LLM 呼叫。在修復前，並發請求會讀到相同的 wiki 狀態並互相覆蓋（lost update）。
+實測 20 個並發更新只有 1 個存活。
+
+**修復：** processor 內部以 `asyncio.Lock` 序列化整條 pipeline
+（讀 snapshot → LLM → 寫 wiki → audit log）。回歸測試：
+`wiki-processor/tests/test_concurrency.py`。
+
+**已知限制：** 鎖是 process-local 的，只保護單一副本部署（目前
+docker-compose 為 1 副本）。多副本部署需要 MinIO 條件寫入（ETag CAS），
+詳見 `docs/architecture/concurrency.md`。
+
+### 症狀：第二次起的 app-level 更新都回傳 `status: failed`
+
+**原因：** app-level merge 對 wiki 中的 dict 值（`apis`/`metadata` 等結構化
+條目）呼叫字串方法導致 `AttributeError`。已加上 `isinstance(content, str)`
+防護；空的 `markdowns` 現在也會在 API 層被擋下（422）。
+
+### 症狀：wiki 更新後 mcp-server 查到舊資料
+
+**原因：** mcp-server 讀取路徑帶有 TTL 快取（1 小時）。wiki-processor 在每次
+成功更新後會呼叫 mcp-server 的 `POST /cache/invalidate` 主動失效；此行為
+需要設定 `MCP_SERVER_URL` 環境變數（docker-compose 已預設
+`http://mcp-server:8002`）。未設定時快取只能等 TTL 過期。
+
+---
+
+## 在沒有 Docker 的環境執行測試
+
+CI 或雲端沙箱可能沒有 docker daemon。可以用本地 MinIO binary + uvicorn 取代
+docker-compose：
+
+```bash
+# 1. 下載並啟動 MinIO
+curl -fsSL https://dl.min.io/server/minio/release/linux-amd64/minio -o ~/minio
+chmod +x ~/minio
+MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+  ~/minio server ~/minio-data --address :9000 &
+
+# 2. 啟動兩個服務
+cd wiki-processor
+MOCK_LLM=true LLM_API_KEY=test-key MINIO_ENDPOINT=localhost:9000 \
+  MCP_SERVER_URL=http://localhost:8002 uvicorn main:app --port 8001 &
+cd ../mcp-server
+MINIO_ENDPOINT=localhost:9000 uvicorn http_api.main:app --port 8002 &
+
+# 3. 執行整合測試
+cd ..
+python tests/integration/test_docker_integration.py
+```
+
+單元測試完全不需要外部服務（conftest.py 會 stub Minio 並設定 MOCK_LLM）：
+
+```bash
+cd wiki-processor && python -m pytest tests/
+cd mcp-server && python -m pytest
 ```
 
 ---

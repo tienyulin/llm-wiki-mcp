@@ -405,8 +405,6 @@ curl "http://localhost:8002/search_apis?query=inventory"
     {
       "module": "inventory",
       "api_key": "GET /inventory",
-      "method": "GET",
-      "path": "/inventory",
       "description": "取得所有庫存項目"
     }
   ],
@@ -418,6 +416,9 @@ curl "http://localhost:8002/search_apis?query=inventory"
 ```bash
 curl "http://localhost:8002/get_api_detail?module=inventory&api_key=GET%20/inventory"
 ```
+
+> 注意：`/get_api_detail` 的 `module` 與 `api_key` 都是必填參數，
+> 缺少任一個會回傳 422。
 
 **Wiki 統計：**
 ```bash
@@ -436,6 +437,23 @@ curl http://localhost:8002/wiki_info
   }
 }
 ```
+
+---
+
+### wiki-processor 端點行為（2026-06-11 更新）
+
+**`POST /process` 輸入驗證：**
+- `markdowns` 不可為空 dict —— 空的 `markdowns` 會回傳 **422 Unprocessable Entity**
+- 並發提交安全：processor 內部以 asyncio.Lock 序列化更新（詳見
+  `docs/architecture/concurrency.md`）
+
+**快取一致性：**
+- mcp-server 讀取端點（`/list_apis`、`/search_apis`、`/get_api_detail`、
+  `/wiki_info`）經由 TTL 快取（預設 1 小時）讀取 wiki
+- wiki-processor 在每次成功更新後呼叫 mcp-server 的
+  `POST /cache/invalidate`（透過 `MCP_SERVER_URL` 環境變數）主動失效快取
+- `POST /cache/invalidate` 帶 `{"source_app": "app-x"}` 時以 key segment
+  精確比對失效；不帶 `source_app` 時清空全部快取
 
 ---
 

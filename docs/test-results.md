@@ -1,4 +1,45 @@
-# LLM Wiki MCP - POC 測試報告
+# LLM Wiki MCP - 測試報告
+
+## 2026-06-11 — 全面 Review 修正後測試
+
+**環境**：無 docker daemon 的沙箱；本地 MinIO binary（:9000）+ uvicorn
+（wiki-processor :8001、mcp-server :8002）、`MOCK_LLM=true`、Python 3.11 venv。
+
+### 修正前 baseline（紅）
+
+| 測試 | 結果 |
+|------|------|
+| wiki-processor 單元測試 | 20 passed |
+| mcp-server `tests/` | 10 passed |
+| mcp-server `http_api/test_http_api.py` | **7 failed** / 3 passed（讀取 API 方法不存在） |
+| 整合 e2e（6 scenarios） | **1/6 通過**（場景 2-6 失敗：讀取 API 壞掉 + app 更新 crash） |
+| `test_poc_100_apps.py` | **ImportError**（`MinimaxClient` 已移除） |
+| 並發 lost-update 實驗 | **20 個並發更新只有 1 個存活** |
+
+### 修正後（綠）
+
+| 測試 | 指令 | 結果 |
+|------|------|------|
+| wiki-processor 單元（含新增並發回歸） | `cd wiki-processor && python -m pytest` | **23 passed** |
+| mcp-server 單元 + HTTP API spec | `cd mcp-server && python -m pytest` | **24 passed** |
+| 整合邏輯 | `python -m pytest tests/integration/test_processor.py` | **4 passed** |
+| 整合 e2e | `python tests/integration/test_docker_integration.py` | **6/6 scenarios 通過** |
+| 壓力（mock storage）×3 | `python tests/stress/test_*.py` | 全部通過 |
+| **壓力（真實服務）** | `python tests/stress/test_real_service_stress.py` | **100/100 並發提交成功、5.1 秒（~20 apps/sec）、audit log 100/100 無遺失** |
+
+### 並發回歸驗證
+
+`test_concurrency.py` 在暫時移除 processor 鎖的情況下重現 race：
+20 個並發更新僅 1/20 存活（lost update rate 95%）；加鎖後 20/20 存活。
+證明回歸測試確實能抓到此 bug。詳見 `docs/architecture/concurrency.md`。
+
+> 注意：mock storage 的壓測（下方 2026-05-10 報告的 1787 apps/sec）無法
+> 暴露真實並發問題；真實服務壓測吞吐受鎖序列化影響為 ~20 apps/sec
+> （mock LLM）。真實 LLM 下吞吐由 LLM 延遲主導。
+
+---
+
+# 2026-05-10 POC 測試報告（歷史）
 
 **測試日期**：2026-05-10  
 **系統**：LLM Wiki MCP with Application-Level Incremental Updates  

@@ -6,162 +6,116 @@ This directory contains all tests for the LLM Wiki MCP project, organized by cat
 
 ```
 tests/
-├── unit/                    # Unit tests (mostly in package directories)
 ├── integration/             # Integration tests
 └── stress/                  # Performance & stress tests
+
+wiki-processor/tests/        # Unit tests (wiki-processor)
+mcp-server/tests/            # Unit tests (mcp-server)
+mcp-server/http_api/test_http_api.py  # HTTP API spec tests
 ```
+
+> ⚠️ `wiki-processor` and `mcp-server` are **separate import roots**. Unit
+> tests must be run from each package's directory (`python -m pytest` puts
+> the cwd on `sys.path`). Running `pytest wiki-processor/tests/ mcp-server/tests/`
+> from the repo root does **not** work (import errors + duplicate `tests`
+> package names).
 
 ## 🧪 Test Categories
 
 ### Unit Tests
-**Location:** Primarily within service packages (`wiki-processor/tests/`, `mcp-server/tests/`)
+**Location:** within service packages
 
-Unit tests verify individual components in isolation:
 - `wiki-processor/tests/test_llm.py` — LLM provider abstraction
-- `wiki-processor/tests/test_routes.py` — API endpoint handlers
-- `wiki-processor/tests/test_processor.py` — Wiki processing logic
-- `mcp-server/tests/test_wiki_service.py` — Wiki service methods
+- `wiki-processor/tests/test_routes.py` — API endpoint handlers (incl. empty-markdowns 422)
+- `wiki-processor/tests/test_processor.py` — change detection logic
+- `wiki-processor/tests/test_concurrency.py` — **concurrency regression**: 20 parallel
+  `process()` calls must not lose updates; app-level updates on structured wikis must succeed
+- `mcp-server/tests/test_wiki_service.py` — wiki service methods
+- `mcp-server/tests/test_cache.py` — cache TTL + exact-match invalidation
+- `mcp-server/http_api/test_http_api.py` — HTTP read API behavior spec
+
+Unit tests are **hermetic** — no MinIO or LLM API required
+(`wiki-processor/tests/conftest.py` stubs the Minio SDK and sets `MOCK_LLM=true`).
 
 **Run unit tests:**
 ```bash
-pytest wiki-processor/tests/ mcp-server/tests/
+cd wiki-processor && python -m pytest          # 23 tests
+cd mcp-server && python -m pytest              # 24 tests (tests/ + http_api/)
 ```
 
 ### Integration Tests
 **Location:** `tests/integration/`
 
-Integration tests verify components working together:
-- `test_docker_integration.py` — Docker Compose services interaction
-- `test_processor.py` — Full wiki-processor pipeline
+- `test_processor.py` — payload/logic validation (pytest, no services needed)
+- `test_docker_integration.py` — end-to-end: 6 scenarios against running services
+  (single app, multi app, wiki structure, API detail, 10 parallel apps, incremental update)
+
+**Requires running services** — either `docker-compose up`, or without docker
+(see `docs/troubleshooting.md` § 在沒有 Docker 的環境執行測試): local MinIO
+binary + two uvicorn processes with `MOCK_LLM=true` and `MCP_SERVER_URL` set.
 
 **Run integration tests:**
 ```bash
-pytest tests/integration/
+python -m pytest tests/integration/test_processor.py     # pytest-style
+python tests/integration/test_docker_integration.py      # script, needs services
 ```
 
 ### Stress Tests
-**Location:** `tests/stress/`
+**Location:** `tests/stress/` — these are **scripts, run with `python`, not pytest**
 
-Stress and performance tests verify behavior under load:
-- `test_100_apps_performance.py` — Performance with 100 concurrent applications
-- `test_poc_standalone.py` — Standalone POC functionality
-- `test_poc_100_apps.py` — 100-app integration POC
+- `test_poc_standalone.py` — 3-10 app scenarios, app-level isolation (mock storage)
+- `test_poc_100_apps.py` — 100-app concurrent update POC (mock storage)
+- `test_100_apps_performance.py` — throughput benchmarks (mock storage)
+- `test_real_service_stress.py` — **100 concurrent apps against the real HTTP
+  services + real MinIO**; verifies 100% success and a complete audit log.
+  Mock-storage tests cannot expose real concurrency bugs — this one can.
 
 **Run stress tests:**
 ```bash
-pytest tests/stress/
-```
-
-Note: Stress tests may be slow and resource-intensive. Set `MOCK_LLM=true` for faster execution.
-
-## 🚀 Running Tests
-
-### All Tests
-```bash
-pytest
-```
-
-### With Coverage
-```bash
-pytest --cov=wiki_processor --cov=mcp_server --cov-report=html
-```
-
-### Specific Category
-```bash
-pytest tests/integration/       # Integration only
-pytest wiki-processor/tests/    # Unit tests for wiki-processor
-pytest tests/stress/            # All stress tests
-```
-
-### With Mock LLM (Faster)
-```bash
-export MOCK_LLM=true
-pytest tests/stress/
-```
-
-### Verbose Output
-```bash
-pytest -v
+python tests/stress/test_poc_standalone.py
+python tests/stress/test_poc_100_apps.py
+python tests/stress/test_100_apps_performance.py
+python tests/stress/test_real_service_stress.py   # needs running services
 ```
 
 ## 📊 Test Configuration
-
-Tests use the following environment variables:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MOCK_LLM` | false | Use mock LLM responses (skip API calls) |
 | `LLM_PROVIDER` | minimax | LLM provider for tests |
-| `MINIMAX_API_KEY` | (unset) | For testing with real Minimax API |
+| `LLM_API_KEY` | (unset) | For testing with a real LLM API |
+| `MINIO_ENDPOINT` | minio:9000 | MinIO address (use `localhost:9000` locally) |
+| `MCP_SERVER_URL` | (unset) | Enables cache invalidation from wiki-processor |
+| `STRESS_N_APPS` | 100 | App count for `test_real_service_stress.py` |
 
 ## ✅ Expected Results
 
 | Test Suite | Expected Status | Duration |
 |-----------|-----------------|----------|
-| Unit tests | All passing | ~5-10s |
-| Integration tests | All passing | ~30-60s |
-| Stress tests | All passing | ~1-5min (with MOCK_LLM=true) |
+| Unit tests (47 total) | All passing | ~1s |
+| Integration tests (6 scenarios) | All passing | ~10s |
+| Stress tests | All passing | ~10s (with MOCK_LLM=true) |
 
-## 🔍 Test Coverage
-
-Target coverage: **>80%** for core modules
-
-Current coverage areas:
-- ✅ LLM provider abstraction
-- ✅ Wiki processing logic
-- ✅ MCP API endpoints
-- ✅ Configuration loading
-- ✅ Application isolation (100-app scenario)
+Latest verified run: see `docs/test-results.md`.
 
 ## 🐛 Debugging Tests
 
-### Enable Detailed Logging
 ```bash
-pytest -v --log-cli-level=DEBUG
-```
-
-### Run Single Test
-```bash
-pytest tests/integration/test_docker_integration.py::test_process_endpoint
-```
-
-### Debug with pdb
-```bash
-pytest --pdb tests/integration/test_processor.py
+python -m pytest -v --log-cli-level=DEBUG          # detailed logging
+python -m pytest tests/test_concurrency.py -v      # single file (from package dir)
+python -m pytest --pdb                             # drop into pdb on failure
 ```
 
 ## 📝 Writing New Tests
 
-### Directory Structure
-- **Unit tests:** Place in the package's `tests/` directory
-- **Integration tests:** Place in `tests/integration/`
-- **Stress tests:** Place in `tests/stress/`
-
-### Example Test Structure
-```python
-import pytest
-from wiki_processor.services.processor import WikiProcessor
-
-class TestWikiProcessing:
-    @pytest.fixture
-    def processor(self):
-        return WikiProcessor()
-    
-    def test_basic_processing(self, processor):
-        result = processor.process({"test.md": "# Test"})
-        assert result["status"] == "success"
-```
-
-## 🚦 CI/CD Integration
-
-Tests run automatically on:
-- **Pull requests** — All tests must pass before merge
-- **Main branch pushes** — Full test suite runs
-- **Scheduled** — Nightly stress tests
-
-See `.gitlab-ci.yml` for CI/CD configuration.
+- **Unit tests:** place in the package's `tests/` directory; keep them hermetic
+  (use the in-memory storage / fake LLM patterns from `test_concurrency.py`)
+- **Integration tests:** place in `tests/integration/`
+- **Stress tests:** place in `tests/stress/` as runnable scripts with a non-zero
+  exit code on failure
 
 ---
 
-**Last Updated:** 2026-05-11  
+**Last Updated:** 2026-06-11
 **Maintainer:** LLM Wiki MCP Team
