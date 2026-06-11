@@ -86,7 +86,9 @@ def to_vector_literal(vec) -> str | None:
 class PGVectorStore:
     """Read-write access to the api_entries index (wiki-processor side)."""
 
-    def __init__(self, dsn: str, min_size: int = 1, max_size: int = 10):
+    def __init__(self, dsn: str, min_size: int = 1, max_size: int = 10, dim: int = 1536):
+        self.dim = dim
+        self._schema_ready = False
         # open=False + lazy aopen(): routes.py builds singletons at import
         # time, before any event loop exists.
         self._pool = AsyncConnectionPool(
@@ -153,6 +155,13 @@ class PGVectorStore:
             if existing_dim is None:
                 await conn.execute(_TABLES_SQL.format(dim=int(dim)))
             await conn.commit()
+
+    async def ensure_schema_once(self):
+        """ensure_schema(self.dim), cached after the first success."""
+        if self._schema_ready:
+            return
+        await self.ensure_schema(self.dim)
+        self._schema_ready = True
 
     async def _embedding_dim(self, conn) -> int | None:
         """Dimension of the existing embedding column, or None if no table.
@@ -344,4 +353,5 @@ def pg_store_from_env() -> PGVectorStore | None:
         dsn,
         min_size=int(os.getenv("PG_POOL_MIN", "1")),
         max_size=int(os.getenv("PG_POOL_MAX", "10")),
+        dim=int(os.getenv("EMBEDDING_DIM", "1536")),
     )
