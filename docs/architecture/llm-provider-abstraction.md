@@ -386,6 +386,7 @@ class MinimaxProvider(LLMProvider):
                 self.API_URL,
                 json=payload,
                 headers=headers,
+                verify=False  # self-signed certs in internal deployments
             )
             response.raise_for_status()
             
@@ -427,6 +428,7 @@ class MinimaxProvider(LLMProvider):
                 self.API_URL,
                 json=payload,
                 headers=headers,
+                verify=False,
                 timeout=httpx.Timeout(10)
             )
             
