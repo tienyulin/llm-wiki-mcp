@@ -491,6 +491,68 @@ v1 的混合形態（wiki 中夾帶 `"file.md": "<markdown>"` 條目）已移除
 
 ---
 
+## 向量索引端點（2026-06-11，PG + pgvector）
+
+設計與實測數據見 `docs/architecture/vector-search.md`。`PG_DSN` 未設定時
+以下行為全部自動退回原有 wiki.json 路徑。
+
+**`GET /semantic_search?query=...&top_k=10`（mcp-server，新端點）：**
+
+```json
+{
+  "results": [
+    {
+      "module": "inventory",
+      "api_key": "GET /inventory/health",
+      "description": "Inventory health check",
+      "source_app": "app-inventory",
+      "score": 0.6202
+    }
+  ],
+  "count": 1,
+  "mode": "semantic"
+}
+```
+
+- `score` = cosine 相似度（僅 `mode: "semantic"` 時存在）
+- `top_k` 上限 50；空 query 回 **400**
+- PG 或 embeddings 不可用時降級為關鍵字搜尋並回 `"mode": "keyword_fallback"`
+  （不回 5xx）
+
+**`GET /search_apis` 新增 `mode` 欄位**（結果項目形狀不變，向後相容）：
+- `"pg_keyword"` — PG trigram 索引查詢
+- `"wiki_scan"` — 原本的 cached-wiki 掃描（fallback）
+
+**`GET /wiki_info` 新增 `vector_index` 區塊：**
+
+```json
+{
+  "vector_index": {
+    "available": true,
+    "semantic_search": true,
+    "entries": 168,
+    "embedded": 168,
+    "last_updated_at": "2026-06-11T11:49:05+00:00",
+    "last_sync": {"source_app": "app-x", "synced_at": "...", "entries": 4}
+  }
+}
+```
+
+PG 停用或不可達時為 `{"available": false}`。`last_sync.synced_at` 對照
+`metadata.updated_at` 可偵測 wiki↔PG 漂移。
+
+**`POST /admin/reindex`（wiki-processor，新端點，受 `X-API-Key` 保護）：**
+
+從 wiki.json 全量重建 PG 索引（首次啟用 PG 的 bootstrap、漂移修復）。
+回應：`{"status": "ok", "apps": 150, "entries": 3000, "embedded": 3000}`。
+`PG_DSN` 未設定時回 **503**。
+
+**`GET /health`（wiki-processor）新增欄位：**
+`vector_index_connected`（PG 可達）、`embeddings_configured`（embedding
+provider 已設定或 mock）。
+
+---
+
 ## 修改 Wiki 結構
 
 ### 添加新 API 字段

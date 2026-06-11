@@ -118,6 +118,24 @@ MOCK_LLM=true                      # For testing without API calls
 - `wiki-processor/services/llm/factory.py` — provider factory
 - All providers in `wiki-processor/services/llm/providers/`
 
+### Vector Index (Postgres + pgvector) ✅
+
+Optional, derived, rebuildable index over wiki.json (MinIO stays the source
+of truth). `PG_DSN` empty = disabled, system behaves exactly as before.
+Design + measured numbers: `docs/architecture/vector-search.md`.
+
+**Key files:**
+- `wiki-processor/services/embeddings/` — OpenAI-compatible embedding client,
+  `MOCK_EMBEDDINGS` mode, canonical `entry_to_text`
+- `wiki-processor/storage/pg_store.py` — read-write store; **owns the DDL**
+  (`ensure_schema`), best-effort post-CAS sync, `/admin/reindex` rebuild
+- `mcp-server/storage/pg_reader.py` — read-only queries + circuit breaker;
+  every read endpoint falls back to the cached-wiki path on PG failure
+- `mcp-server/services/embeddings.py` — query-side `mock_embed` copy,
+  **golden-pinned** against the processor copy (change both together)
+- `db/Dockerfile` — bitnami repmgr base + pgvector; compose profile `pg`
+  runs pg-0/pg-1/pg-2 (1 primary + 2 standby, multi-host DSN failover)
+
 ### Git Push 403 Issue (Resolved)
 
 If `git push` fails with HTTP 403, use GitHub MCP API instead:

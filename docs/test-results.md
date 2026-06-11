@@ -1,5 +1,44 @@
 # LLM Wiki MCP - 測試報告
 
+## 2026-06-11（晚）— 向量索引層（Postgres + pgvector）
+
+**環境**：本地 MinIO binary + PostgreSQL 16（pgvector 0.6.0、本機 apt 安裝，
+Docker Hub 匿名拉取受限）+ uvicorn ×3（processor :8001、mcp :8002 有 PG、
+mcp :8003 無 PG 對照組）、`MOCK_LLM=true`、`MOCK_EMBEDDINGS=true`。
+
+| 測試 | 指令 | 結果 |
+|------|------|------|
+| wiki-processor 單元（含 embeddings、vector sync、real-PG store） | `cd wiki-processor && python -m pytest` | **73 passed** |
+| mcp-server 單元（含 PG read path、golden 一致性、breaker） | `cd mcp-server && python -m pytest` | **42 passed** |
+| 整合 e2e（7 scenarios，新增語意搜尋） | `python tests/integration/test_docker_integration.py` | **7/7 通過** |
+| 壓力（100 並發 + PG 同步） | `python tests/stress/test_real_service_stress.py` | **100/100 成功、PG entries 100/100、語意抽樣 5/5** |
+| 多主機 DSN failover smoke | `test_pg_store.py::test_multihost_dsn_skips_dead_host` | **通過**（死節點在前仍連上可寫節點） |
+| dim-mismatch 防護 | 換維度後 `/admin/reindex` | **明確拒絕**並給出修復指示（非靜默損壞） |
+
+**寫入開銷**：單筆 app 同步 ≈ 5.5 ms；100 並發 burst 5.28 s → 5.91 s
+（**+12%**），p50 2605→2926 ms / p95 4934→5517 ms（burst 排隊效應，兩種
+模式同受 CAS serialization 主導）。
+
+**查詢加速（p50，warm cache）**：
+
+| N entries | `/search_apis` wiki 掃描 | PG trigram | `/semantic_search` | cold-cache wiki → PG |
+|---|---|---|---|---|
+| 300 | 1.5 ms | 3.1 ms | 4.3 ms | 7.7 → 8.9 ms |
+| 3 000 | 5.9 ms | 8.1 ms* | 2.9 ms | 18.7 → 13.4 ms |
+| 30 000 | 52.6 ms | **3.1 ms（17×）** | **4.1 ms** | **195 → 6.0 ms（32×）** |
+
+\* 小表時 planner 走 seq scan；交叉點約數千 entries。30k 全量
+`/admin/reindex` = 94 s（bulk insert + HNSW/GIN 一次性重建）。
+完整分析見 `docs/architecture/vector-search.md`。
+
+**未在本沙盒驗證**：3 節點 repmgr 叢集實際 failover（Docker Hub 匿名
+拉取限流，`bitnamilegacy/postgresql-repmgr:16` 無法取得）。客戶端
+failover 語意已由多主機 DSN smoke 測試覆蓋；叢集本身的 failover 需在
+有映像的環境以 `docker compose --profile pg up` + `docker stop wiki-pg-0`
+驗證（步驟見 `docs/guides/local-setup.md`）。
+
+---
+
 ## 2026-06-11（下午）— 優化工作包（schema v2 / CAS / 認證 / 限速）
 
 **環境**：本地 MinIO binary（RELEASE.2025-09，支援 S3 條件寫入）+ uvicorn、
