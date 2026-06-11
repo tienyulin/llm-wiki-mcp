@@ -26,10 +26,15 @@ mcp-server/http_api/test_http_api.py  # HTTP API spec tests
 **Location:** within service packages
 
 - `wiki-processor/tests/test_llm.py` — LLM provider abstraction
-- `wiki-processor/tests/test_routes.py` — API endpoint handlers (incl. empty-markdowns 422)
+- `wiki-processor/tests/test_routes.py` — API endpoint handlers (empty-markdowns 422,
+  X-API-Key auth 401/200/dev mode)
 - `wiki-processor/tests/test_processor.py` — change detection logic
 - `wiki-processor/tests/test_concurrency.py` — **concurrency regression**: 20 parallel
-  `process()` calls must not lose updates; app-level updates on structured wikis must succeed
+  `process()` calls must not lose updates; CAS conflict injection; resubmission
+  replaces only that app's entries; v2 schema migration
+- `wiki-processor/tests/test_storage_cas.py` — MinIO conditional-write behavior
+  (runs against a real MinIO, auto-skips when unreachable)
+- `mcp-server/tests/test_rate_limit.py` — token-bucket middleware (burst, 429, refill)
 - `mcp-server/tests/test_wiki_service.py` — wiki service methods
 - `mcp-server/tests/test_cache.py` — cache TTL + exact-match invalidation
 - `mcp-server/http_api/test_http_api.py` — HTTP read API behavior spec
@@ -39,8 +44,8 @@ Unit tests are **hermetic** — no MinIO or LLM API required
 
 **Run unit tests:**
 ```bash
-cd wiki-processor && python -m pytest          # 23 tests
-cd mcp-server && python -m pytest              # 24 tests (tests/ + http_api/)
+cd wiki-processor && python -m pytest          # 33 tests (CAS tests skip without MinIO)
+cd mcp-server && python -m pytest              # 28 tests (tests/ + http_api/)
 ```
 
 ### Integration Tests
@@ -63,20 +68,21 @@ python tests/integration/test_docker_integration.py      # script, needs service
 ### Stress Tests
 **Location:** `tests/stress/` — these are **scripts, run with `python`, not pytest**
 
-- `test_poc_standalone.py` — 3-10 app scenarios, app-level isolation (mock storage)
-- `test_poc_100_apps.py` — 100-app concurrent update POC (mock storage)
-- `test_100_apps_performance.py` — throughput benchmarks (mock storage)
+- `test_mock_stress.py` — 100-way concurrent updates on in-memory CAS storage:
+  no lost updates, resubmission replacement, app isolation, audit completeness
 - `test_real_service_stress.py` — **100 concurrent apps against the real HTTP
-  services + real MinIO**; verifies 100% success and a complete audit log.
-  Mock-storage tests cannot expose real concurrency bugs — this one can.
+  services + real MinIO (real ETag conditional writes)**; asserts per-app
+  integrity: every app's derived entries must appear in the final wiki
 
 **Run stress tests:**
 ```bash
-python tests/stress/test_poc_standalone.py
-python tests/stress/test_poc_100_apps.py
-python tests/stress/test_100_apps_performance.py
-python tests/stress/test_real_service_stress.py   # needs running services
+python tests/stress/test_mock_stress.py            # hermetic, no services
+python tests/stress/test_real_service_stress.py    # needs running services
 ```
+
+> The three legacy v1-model scripts (test_poc_standalone / test_poc_100_apps /
+> test_100_apps_performance) were removed with the schema-v2 migration — the
+> data model they exercised no longer exists.
 
 ## 📊 Test Configuration
 
@@ -87,13 +93,15 @@ python tests/stress/test_real_service_stress.py   # needs running services
 | `LLM_API_KEY` | (unset) | For testing with a real LLM API |
 | `MINIO_ENDPOINT` | minio:9000 | MinIO address (use `localhost:9000` locally) |
 | `MCP_SERVER_URL` | (unset) | Enables cache invalidation from wiki-processor |
+| `PROCESSOR_API_KEY` | (unset) | /process auth key; integration/stress clients send it automatically |
+| `RATE_LIMIT_RPS` | 0 | mcp-server per-IP rate limit (0 = disabled) |
 | `STRESS_N_APPS` | 100 | App count for `test_real_service_stress.py` |
 
 ## ✅ Expected Results
 
 | Test Suite | Expected Status | Duration |
 |-----------|-----------------|----------|
-| Unit tests (47 total) | All passing | ~1s |
+| Unit tests (61 total) | All passing | ~2s |
 | Integration tests (6 scenarios) | All passing | ~10s |
 | Stress tests | All passing | ~10s (with MOCK_LLM=true) |
 

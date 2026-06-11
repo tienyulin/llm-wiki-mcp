@@ -440,12 +440,46 @@ curl http://localhost:8002/wiki_info
 
 ---
 
+### Wiki Schema v2（2026-06-11）
+
+頂層結構新增 `schema_version: 2`，且每個 API entry 帶有 processor 蓋章的
+provenance 欄位（LLM 輸出不被信任）：
+
+```json
+{
+  "schema_version": 2,
+  "apis": {
+    "inventory": {
+      "GET /inventory": {
+        "method": "GET",
+        "path": "/inventory",
+        "description": "...",
+        "source_app": "app-inventory",
+        "source_version": "a1b2c3d"
+      }
+    }
+  },
+  "metadata": {"version": "1.0", "created_at": "...", "updated_at": "..."}
+}
+```
+
+v1 的混合形態（wiki 中夾帶 `"file.md": "<markdown>"` 條目）已移除；
+舊資料讀取時自動遷移（詳見 `docs/architecture/concurrency.md`）。
+
 ### wiki-processor 端點行為（2026-06-11 更新）
+
+**`POST /process` 認證：**
+- 設定 `PROCESSOR_API_KEY` 後，請求須帶 `X-API-Key` header，否則回 **401**
+- 未設定時為 dev mode（不驗證，啟動時記 warning）
 
 **`POST /process` 輸入驗證：**
 - `markdowns` 不可為空 dict —— 空的 `markdowns` 會回傳 **422 Unprocessable Entity**
-- 並發提交安全：processor 內部以 asyncio.Lock 序列化更新（詳見
+- 並發提交安全：兩階段更新 + MinIO ETag 條件寫入（多副本安全，詳見
   `docs/architecture/concurrency.md`）
+
+**mcp-server rate limiting：**
+- 設定 `RATE_LIMIT_RPS` > 0 後，單一 client IP 超過限速回 **429**
+  （含 `Retry-After` header）；`/health` 豁免
 
 **快取一致性：**
 - mcp-server 讀取端點（`/list_apis`、`/search_apis`、`/get_api_detail`、

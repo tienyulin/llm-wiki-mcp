@@ -96,6 +96,7 @@ git push origin main
 |--------|-----|------|
 | `WIKI_PROCESSOR_URL` | `http://wiki-processor:8001` | Processor API 位置 |
 | `MARKDOWN_PATTERN` | `markdowns/**/*.md` | 尋找 markdown 的 Glob 模式 |
+| `PROCESSOR_API_KEY` | （masked variable） | Processor 啟用認證時必填，template 會自動帶入 `X-API-Key` header |
 
 或直接在 `.gitlab-ci.yml` 中設定：
 
