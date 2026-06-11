@@ -43,9 +43,18 @@ services:
       MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8002}
       # /process auth — leave empty for unauthenticated dev mode
       PROCESSOR_API_KEY: ${PROCESSOR_API_KEY:-}
+      # Optional PG+pgvector index (empty = disabled; see profile "pg")
+      PG_DSN: ${PG_DSN:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+      MOCK_EMBEDDINGS: ${MOCK_EMBEDDINGS:-true}
     depends_on:
       minio:
         condition: service_healthy
+    # No depends_on for pg-*: the index layer is optional and best-effort;
+    # the service must boot and serve even when PG is absent or down.
     networks:
       - wiki-network
     command: python main.py
@@ -62,6 +71,13 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-wiki-data}
+      PG_DSN: ${PG_DSN:-}
+      PG_RETRY_SECONDS: ${PG_RETRY_SECONDS:-30}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+      MOCK_EMBEDDINGS: ${MOCK_EMBEDDINGS:-true}
     depends_on:
       minio:
         condition: service_healthy
@@ -69,8 +85,70 @@ services:
       - wiki-network
     command: python http_api/main.py
 
+  # ---------------------------------------------------------------------
+  # Optional PG+pgvector HA cluster (1 primary + 2 standbys, repmgr
+  # automatic failover). Enable with:
+  #
+  #   PG_DSN='postgresql://wiki:wikipass@pg-0:5432,pg-1:5432,pg-2:5432/wiki?target_session_attrs=read-write' \
+  #     docker compose --profile pg up -d
+  #
+  # Plain `docker compose up` ignores these services entirely.
+  # ---------------------------------------------------------------------
+  pg-0: &pg-node
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    image: llm-wiki-pg:16
+    container_name: wiki-pg-0
+    profiles: ["pg"]
+    environment: &pg-env
+      POSTGRESQL_POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD:-postgrespass}
+      POSTGRESQL_USERNAME: ${PG_USER:-wiki}
+      POSTGRESQL_PASSWORD: ${PG_PASSWORD:-wikipass}
+      POSTGRESQL_DATABASE: ${PG_DATABASE:-wiki}
+      REPMGR_PASSWORD: ${REPMGR_PASSWORD:-repmgrpass}
+      REPMGR_PRIMARY_HOST: pg-0
+      REPMGR_PARTNER_NODES: pg-0,pg-1,pg-2
+      REPMGR_NODE_NAME: pg-0
+      REPMGR_NODE_NETWORK_NAME: pg-0
+    volumes:
+      - pg0_data:/bitnami/postgresql
+      # Extension bootstrap runs only where the cluster is initialized (pg-0);
+      # standbys clone the data dir via pg_basebackup and inherit it.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-wiki} -d ${PG_DATABASE:-wiki}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wiki-network
+
+  pg-1:
+    <<: *pg-node
+    container_name: wiki-pg-1
+    environment:
+      <<: *pg-env
+      REPMGR_NODE_NAME: pg-1
+      REPMGR_NODE_NETWORK_NAME: pg-1
+    volumes:
+      - pg1_data:/bitnami/postgresql
+
+  pg-2:
+    <<: *pg-node
+    container_name: wiki-pg-2
+    environment:
+      <<: *pg-env
+      REPMGR_NODE_NAME: pg-2
+      REPMGR_NODE_NETWORK_NAME: pg-2
+    volumes:
+      - pg2_data:/bitnami/postgresql
+
 volumes:
   minio_data:
+  pg0_data:
+  pg1_data:
+  pg2_data:
 
 networks:
   wiki-network:
