@@ -39,6 +39,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-wiki-data}
+      # mcp-server cache is invalidated after each successful wiki update
+      MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8002}
     depends_on:
       minio:
         condition: service_healthy
