@@ -185,7 +185,7 @@ json.JSONDecodeError: Expecting value
    import httpx
    import os
    
-   api_key = os.getenv("MINIMAX_API_KEY")
+   api_key = os.getenv("LLM_API_KEY") or os.getenv("MINIMAX_API_KEY")
    response = httpx.post(
      "https://api.minimax.io/v1/text/chatcompletion_v2",
      headers={"Authorization": f"Bearer {api_key}"},
@@ -193,7 +193,6 @@ json.JSONDecodeError: Expecting value
        "model": "MiniMax-M2.7",
        "messages": [{"role": "user", "content": "test"}],
      },
-     verify=False
    )
    print(f"Status: {response.status_code}")
    print(f"Response: {response.text[:200]}")

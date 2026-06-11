@@ -386,7 +386,6 @@ class MinimaxProvider(LLMProvider):
                 self.API_URL,
                 json=payload,
                 headers=headers,
-                verify=False  # Note: Consider enabling in production
             )
             response.raise_for_status()
             
@@ -428,7 +427,6 @@ class MinimaxProvider(LLMProvider):
                 self.API_URL,
                 json=payload,
                 headers=headers,
-                verify=False,
                 timeout=httpx.Timeout(10)
             )
             
