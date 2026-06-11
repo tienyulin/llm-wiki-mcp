@@ -5,6 +5,7 @@ Welcome to the LLM Wiki MCP documentation. This directory contains all project d
 ## 📋 Quick Navigation
 
 ### 🚀 Getting Started
+- **[End-to-End Example](guides/end-to-end-example.md)** — Follow two real markdown files through the entire pipeline: what each step produces, what MinIO/Postgres store, and what each query endpoint returns. **Start here if you're new.**
 - **[Local Setup Guide](guides/local-setup.md)** — How to set up the project locally, start services, run tests
 - **[Quick Start](../README.md#快速開始)** — Quick start in main README
 
@@ -30,6 +31,7 @@ Welcome to the LLM Wiki MCP documentation. This directory contains all project d
 docs/
 ├── README.md                              # This file
 ├── guides/
+│   ├── end-to-end-example.md             # Worked example through the whole pipeline
 │   ├── local-setup.md                    # Local environment setup
 │   ├── development.md                    # Development guidelines
 │   └── gitlab-setup.md                   # GitLab CI/CD configuration

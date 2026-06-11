@@ -4,6 +4,10 @@
 資料儲存與查詢 pipeline。所有數字皆為實測（環境：單機沙盒、MOCK_LLM +
 MOCK_EMBEDDINGS、本機 MinIO 與 PostgreSQL 16 + pgvector 0.6/HNSW）。
 
+> 想先看具體資料長什麼樣子（markdown 進去、每一步出來什麼、兩邊各存什麼、
+> 查詢撈到什麼），請先讀
+> [端到端完整範例](../guides/end-to-end-example.md)。
+
 ## TL;DR
 
 | 面向 | 沒有 PG（現狀） | 有 PG | 結論 |

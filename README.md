@@ -380,6 +380,10 @@ spec:
 
 完整文檔請參考 [docs/README.md](docs/README.md)
 
+> 📖 **第一次接觸這個專案？** 先看 [端到端完整範例](docs/guides/end-to-end-example.md)
+> —— 用真實跑過的資料走完整條 pipeline：兩份 markdown 經過每一步變成什麼、
+> MinIO / Postgres 各存了什麼、查詢時用什麼撈到什麼。
+
 **常用連結：**
 - [本地設置指南](docs/guides/local-setup.md) — 環境配置和快速開始
 - [開發指南](docs/guides/development.md) — 代碼結構和擴展
