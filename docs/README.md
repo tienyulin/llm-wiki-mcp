@@ -5,11 +5,14 @@ Welcome to the LLM Wiki MCP documentation. This directory contains all project d
 ## 📋 Quick Navigation
 
 ### 🚀 Getting Started
+- **[End-to-End Example](guides/end-to-end-example.md)** — Follow two real markdown files through the entire pipeline: what each step produces, what MinIO/Postgres store, and what each query endpoint returns. **Start here if you're new.**
 - **[Local Setup Guide](guides/local-setup.md)** — How to set up the project locally, start services, run tests
 - **[Quick Start](../README.md#快速開始)** — Quick start in main README
 
 ### 🏗️ Architecture & Design
 - **[LLM Provider Abstraction](architecture/llm-provider-abstraction.md)** — Design and implementation of 7-provider abstraction layer
+- **[Concurrency Model](architecture/concurrency.md)** — Multi-replica safe two-phase CAS write pipeline
+- **[Vector Search](architecture/vector-search.md)** — PG+pgvector index design, measured evaluation, failure semantics (with diagrams)
 - **[API Schema](api/schema.md)** — Complete API endpoint documentation
 
 ### 👨‍💻 Development
@@ -28,11 +31,14 @@ Welcome to the LLM Wiki MCP documentation. This directory contains all project d
 docs/
 ├── README.md                              # This file
 ├── guides/
+│   ├── end-to-end-example.md             # Worked example through the whole pipeline
 │   ├── local-setup.md                    # Local environment setup
 │   ├── development.md                    # Development guidelines
 │   └── gitlab-setup.md                   # GitLab CI/CD configuration
 ├── architecture/
-│   └── llm-provider-abstraction.md       # Provider abstraction design
+│   ├── llm-provider-abstraction.md       # Provider abstraction design
+│   ├── concurrency.md                    # Multi-replica CAS write design
+│   └── vector-search.md                  # PG+pgvector design + evaluation
 ├── api/
 │   └── schema.md                         # API endpoint reference
 ├── troubleshooting.md                    # Troubleshooting & FAQ
