@@ -6,23 +6,41 @@
 
 ## 架構（去中心化 + 直接觸發）
 
+```mermaid
+flowchart TB
+    subgraph apps["100+ Applications"]
+        A1["fastapi-a"]
+        A2["app-inventory"]
+        A3["..."]
+    end
+
+    CI["GitLab CI<br/>(generate-and-push-wiki.yml)"]
+    WP["wiki-processor :8001<br/>LLM 萃取 + 應用級增量更新"]
+    LLM["LLM Provider<br/>(Minimax / OpenAI / ... / 自架)"]
+    EMB["Embedding API<br/>(OpenAI-compatible，可選)"]
+    M[("MinIO<br/>wiki.json ＝ 唯一事實來源")]
+    PG[("Postgres + pgvector<br/>可選的查詢索引（可重建）")]
+    MCP["mcp-server :8002<br/>查詢 API + 快取"]
+    C["Claude / LLM Agents"]
+
+    A1 & A2 & A3 --> CI
+    CI -->|"POST /process（並行）"| WP
+    WP <--> LLM
+    WP <-.-> EMB
+    WP -->|"ETag CAS 條件寫入"| M
+    WP -.->|"best-effort 同步"| PG
+    WP -->|"POST /cache/invalidate"| MCP
+    M -->|"fallback 讀取路徑"| MCP
+    PG -.->|"語意 / 關鍵字 / 點查"| MCP
+    MCP --> C
+
+    style PG stroke-dasharray: 5 5
+    style EMB stroke-dasharray: 5 5
 ```
-100+ Applications
-├─ fastapi-a → scripts/generate_docs.py
-├─ fastapi-b → scripts/generate_docs.py
-├─ app-inventory → scripts/generate_docs.py
-└─ ... (無限擴展)
-      ↓
-   [GitLab CI] (include ci-scripts/generate-and-push-wiki.yml)
-      ↓ (並行發送)
-wiki-processor:8001/process
-      ↓ (應用級增量更新)
-   Minio (wiki-data bucket)
-      ↓ (部分緩存失效)
-mcp-server:8002
-      ↓
-Claude / LLM
-```
+
+> 虛線 = 可選的向量索引層（`PG_DSN` 未設定時不存在，系統行為不變）。
+> MinIO 永遠是事實來源；PG 是衍生索引，掛掉自動 fallback、可隨時
+> `POST /admin/reindex` 重建。詳見 [向量檢索架構](docs/architecture/vector-search.md)。
 
 ## 核心特性
 
@@ -35,6 +53,8 @@ Claude / LLM
 | **智能緩存** | mcp-server 內存緩存 + 應用級別的緩存失效 |
 | **統一 CI 模板** | 一份 .gitlab-ci.yml include 就搞定，應用無需修改 |
 | **多 LLM 提供商** | 支持 Minimax、OpenAI、Anthropic、Gemini、Groq、Azure、自架 LLM（Ollama/vLLM），透過 `LLM_PROVIDER` 切換 |
+| **多副本安全** | wiki 寫入用 MinIO ETag CAS 條件寫入，多實例並發不丟更新 |
+| **語意搜尋（可選）** | Postgres + pgvector 索引：`/semantic_search` ANN 檢索含相似度分數；30k entries 下關鍵字搜尋 17×、冷快取 32× 加速；PG 掛掉自動 fallback 回 MinIO 路徑 |
 
 ## 快速開始
 
@@ -183,8 +203,11 @@ GET /health
 # 查詢 wiki 統計
 curl http://localhost:8002/wiki_info
 
-# 搜尋 API
+# 關鍵字搜尋（PG 啟用時回 mode=pg_keyword，否則 mode=wiki_scan）
 curl "http://localhost:8002/search_apis?query=inventory"
+
+# 語意搜尋（需啟用 PG+pgvector；不可用時自動降級為關鍵字）
+curl "http://localhost:8002/semantic_search?query=inventory%20health&top_k=5"
 
 # 列出 API
 curl "http://localhost:8002/list_apis"
@@ -195,40 +218,36 @@ POST /cache/invalidate
   response: {"status": "ok", "invalidated_entries": 5}
 ```
 
-## Minio Wiki 結構
+## Minio Wiki 結構（schema v2）
 
 ```
 wiki-data/
-├── overview.md                    # 項目概覽
-├── llms.txt                       # 索引
-├── api/
-│   ├── app-inventory.md          # source_app: app-inventory
-│   ├── app-orders.md             # source_app: app-orders
-│   └── ...
-├── architecture/
-│   ├── system-overview.md
-│   ├── app-inventory-design.md
-│   └── ...
-├── workflows/, concepts/, guides/
-├── _metadata/
-│   ├── wiki-metadata.json        # 各應用最後更新時間
-│   └── wiki-audit-log.jsonl      # NDJSON 審計日誌
-└── _snapshots/
-    └── markdowns_snapshot.json
+├── wiki.json                      # 唯一事實來源：{schema_version: 2, apis: {module: {api_key: {...}}}}
+│                                  # 每個 entry 帶 processor 蓋章的 source_app / source_version
+├── snapshots/
+│   └── {app}.json                 # 各應用上次提交的 markdown 快照（變更偵測用）
+├── markdowns_snapshot.json        # 全量提交（無 source_app）的快照
+└── audit/
+    └── {iso-ts}-{uuid8}.json      # append-only 審計記錄，每次提交一筆
 ```
+
+啟用 PG 後另有衍生索引表 `api_entries`（每個 API entry 一列 + 向量），
+可隨時從 wiki.json 重建，見 [db/README.md](db/README.md)。
 
 ## 應用隔離驗證
 
 ```bash
-# POC 測試：模擬 100 個應用並行更新
-cd /home/user/llm-wiki-mcp
-python tests/test_poc_100_apps.py
+# 壓力測試：100 個應用並行更新（hermetic，無需服務）
+python tests/stress/test_mock_stress.py
+
+# 真實服務壓測（需先啟動服務；PG 啟用時自動驗證索引完整性）
+python tests/stress/test_real_service_stress.py
 
 # 預期結果：
-# ✓ 應用級增量更新
-# ✓ 多應用共存無衝突
-# ✓ 並行更新性能良好
-# ✓ 審計日誌完整記錄
+# ✓ 100/100 提交成功、無 lost update（CAS 驗證）
+# ✓ 應用隔離：重新提交只取代該應用的 entries
+# ✓ 審計記錄完整（每提交一筆）
+# ✓ （PG 啟用時）索引完整 + 語意抽樣可命中
 ```
 
 ## CI/CD 統一配置
@@ -294,8 +313,8 @@ MOCK_LLM=true                  # 模擬 LLM，不呼叫真實 API
 cd wiki-processor && pytest tests/ -v
 cd ../mcp-server && pytest tests/ -v
 
-# POC 測試（100 應用並行更新）
-python tests/test_poc_100_apps.py
+# 壓力測試（100 應用並行更新）
+python tests/stress/test_mock_stress.py
 
 # 手動測試
 curl -X POST http://localhost:8001/process \
@@ -366,6 +385,8 @@ spec:
 - [開發指南](docs/guides/development.md) — 代碼結構和擴展
 - [GitLab CI 集成](docs/guides/gitlab-setup.md) — CI/CD 配置步驟
 - [LLM 提供商架構](docs/architecture/llm-provider-abstraction.md) — 多提供商設計
+- [向量檢索架構](docs/architecture/vector-search.md) — PG+pgvector 設計與實測評估
+- [並發模型](docs/architecture/concurrency.md) — 多副本 CAS 寫入設計
 - [API 文檔](docs/api/schema.md) — 完整 API 端點參考
 - [故障排除](docs/troubleshooting.md) — 常見問題和解決方案
 
@@ -377,33 +398,63 @@ spec:
 
 ## 架構圖
 
-### 數據流
+### 寫入流程（一次 /process 提交）
 
+```mermaid
+sequenceDiagram
+    participant CI as 應用 CI
+    participant WP as wiki-processor
+    participant LLM as LLM Provider
+    participant EMB as Embedding API
+    participant M as MinIO
+    participant PG as Postgres+pgvector
+    participant MCP as mcp-server
+
+    CI->>WP: POST /process（markdowns + source_app）
+    WP->>M: 讀 wiki.json（含 ETag）+ 快照變更偵測
+    Note over WP: 無變更 → 直接回 success，跳過後面全部
+    WP->>LLM: 萃取該應用的 API entries（無鎖、並發）
+    WP->>EMB: 批次 embed entries（可選；失敗 → NULL 向量）
+    loop CAS loop（衝突時重讀重併最多 5 次）
+        WP->>M: If-Match 條件寫入 wiki.json
+    end
+    WP->>M: 寫快照 + audit 記錄
+    WP--)PG: replace_app_entries（best-effort，失敗只記 audit、不擋回應）
+    WP--)MCP: POST /cache/invalidate
+    WP-->>CI: 200 success
 ```
-應用 markdown → CI 生成 → POST /process
-                    ↓
-              (應用級增量更新)
-                    ↓
-              Minio 存儲 + 審計日誌
-                    ↓
-              mcp-server 緩存
-                    ↓
-              Claude / LLM 瀏覽
+
+### 讀取流程（mcp-server 每個查詢端點）
+
+```mermaid
+flowchart TD
+    Q["查詢請求<br/>/search_apis · /semantic_search · /list_apis · /get_api_detail"]
+    Q --> G{"PG 已設定<br/>且不在冷卻期？"}
+    G -- "否" --> W["cached wiki.json 路徑<br/>（與沒有 PG 時完全相同）"]
+    G -- "是" --> P["PG 索引查詢<br/>語意 ANN / trigram 關鍵字 / B-tree 點查"]
+    P -- "成功且有結果" --> R1["回傳<br/>mode = semantic / pg_keyword"]
+    P -- "錯誤或空結果" --> B["circuit breaker<br/>冷卻 PG_RETRY_SECONDS"] --> W
+    W --> R2["回傳<br/>mode = wiki_scan / keyword_fallback"]
 ```
+
+> 設計重點：**降級永遠可用**——PG 不存在、剛清空、或中途掛掉，
+> 查詢都自動落回原本的 MinIO 快取路徑，不回 5xx。
 
 ### 組件責任
 
 | 組件 | 責任 |
 |------|------|
-| **wiki-processor** | 接收 markdown、LLM 處理、應用級更新、Minio 存儲 |
-| **mcp-server** | 緩存、HTTP 查詢、應用隔離驗證 |
-| **Minio** | 持久化存儲、審計日誌 |
+| **wiki-processor** | 接收 markdown、LLM 處理、應用級 CAS 更新、Minio 存儲、PG 索引同步 |
+| **mcp-server** | 緩存、HTTP 查詢（PG-first + 自動 fallback）、語意搜尋 |
+| **Minio** | 持久化存儲（唯一事實來源）、審計日誌 |
+| **Postgres + pgvector**（可選） | 衍生查詢索引：ANN 語意搜尋、trigram 關鍵字、點查；可隨時重建 |
 | **CI 模板** | 統一應用端的文檔生成和提交流程 |
 
 ## 下一步
 
-1. ✅ POC 完成（本分支）
-2. ⏳ 合併到主分支並部署
-3. ⏳ 在實際應用中測試（fastapi-a, fastapi-b）
-4. ⏳ 擴展到 k8s（多實例 wiki-processor）
-5. ⏳ 監控和性能優化
+1. ✅ Schema v2 + 多副本 CAS 並發 + 認證 + 限速
+2. ✅ 多 LLM 提供商抽象
+3. ✅ 向量檢索層（PG + pgvector：語意搜尋 + 查詢加速）
+4. ⏳ 大規模壓測（100+ 應用、1000+ 並發 agents）
+5. ⏳ CI/CD 自動文檔生成集成
+6. ⏳ k8s 部署與監控

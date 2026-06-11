@@ -10,6 +10,8 @@ Welcome to the LLM Wiki MCP documentation. This directory contains all project d
 
 ### 🏗️ Architecture & Design
 - **[LLM Provider Abstraction](architecture/llm-provider-abstraction.md)** — Design and implementation of 7-provider abstraction layer
+- **[Concurrency Model](architecture/concurrency.md)** — Multi-replica safe two-phase CAS write pipeline
+- **[Vector Search](architecture/vector-search.md)** — PG+pgvector index design, measured evaluation, failure semantics (with diagrams)
 - **[API Schema](api/schema.md)** — Complete API endpoint documentation
 
 ### 👨‍💻 Development
@@ -32,7 +34,9 @@ docs/
 │   ├── development.md                    # Development guidelines
 │   └── gitlab-setup.md                   # GitLab CI/CD configuration
 ├── architecture/
-│   └── llm-provider-abstraction.md       # Provider abstraction design
+│   ├── llm-provider-abstraction.md       # Provider abstraction design
+│   ├── concurrency.md                    # Multi-replica CAS write design
+│   └── vector-search.md                  # PG+pgvector design + evaluation
 ├── api/
 │   └── schema.md                         # API endpoint reference
 ├── troubleshooting.md                    # Troubleshooting & FAQ
