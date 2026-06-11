@@ -578,6 +578,63 @@ cd mcp-server && python -m pytest
 
 ---
 
+## 向量索引（PG + pgvector）問題
+
+### PG 掛了 / 連不上，查詢還能用嗎？
+
+能。這是設計保證：mcp-server 每個讀取端點在 PG 出錯或回空時自動退回
+cached-wiki 路徑（`/search_apis` 回應的 `mode` 欄位會顯示 `wiki_scan`），
+circuit breaker（`PG_RETRY_SECONDS`，預設 30 秒）期間不再嘗試 PG。
+wiki-processor 端的索引同步是 best-effort —— **wiki 寫入永不因 PG 失敗
+而失敗**，失敗會在 audit log 記一筆 `success_index_sync_failed`。
+
+### PG 與 wiki.json 內容不一致（漂移）
+
+PG 停機期間的提交不會進索引。偵測：比較
+`GET /wiki_info` 的 `vector_index.last_sync.synced_at` 與
+`metadata.updated_at`；audit log 搜 `success_index_sync_failed`。
+修復：`POST /admin/reindex`（全量重建，30k entries 約 94 秒）。
+
+### 啟動報錯 `embedding is vector(N) but EMBEDDING_DIM=M`
+
+換了 embedding 模型或維度。舊向量與新向量不可比較，系統拒絕混用。
+處理：
+
+```sql
+DROP TABLE api_entries, index_state, app_sync CASCADE;
+```
+
+然後 `POST /admin/reindex` 重建。
+
+### `/semantic_search` 回 `mode: keyword_fallback`
+
+依序檢查：(1) `PG_DSN` 是否設定（兩個服務都要）；(2) `GET /wiki_info`
+的 `vector_index.available`；(3) embeddings 是否設定
+（`EMBEDDING_BASE_URL` 或 `MOCK_EMBEDDINGS=true`）；(4) 索引是否為空
+（`entries: 0` → 先 reindex）；(5) mcp-server log 中的具體錯誤。
+
+### PG 容器資料壞掉 / 想重來
+
+PG 只是衍生索引，事實來源永遠是 wiki.json。直接 wipe 重建：
+
+```bash
+docker compose --profile pg down && docker volume rm llm-wiki-mcp_pg_data
+docker compose --profile pg up -d
+curl -X POST http://localhost:8001/admin/reindex -H "X-API-Key: $PROCESSOR_API_KEY"
+```
+
+（升級到 HA 叢集時客戶端用多主機 DSN + `target_session_attrs=read-write`
+即可自動跳過 dead/demoted 節點，應用程式碼不用改，見 `db/README.md`。）
+
+### 寫入變慢了？
+
+每筆 app 同步 ≈ 5.5 ms（交易內 `synchronous_commit=off`）；100 並發
+burst 實測 +12%。明顯更慢時檢查 PG 主機 I/O 與
+`EMBEDDING_TIMEOUT`（真實 embeddings API 慢時，最多拖到 timeout 後降級
+為 NULL 向量）。
+
+---
+
 ## 常見錯誤參考
 
 | 錯誤代碼 | 常見原因 | 解決方案 |

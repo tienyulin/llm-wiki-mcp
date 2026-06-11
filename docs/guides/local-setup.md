@@ -178,6 +178,59 @@ curl http://localhost:8002/health
 
 ---
 
+## 啟用向量索引（Postgres + pgvector，可選）
+
+語意搜尋與大規模查詢加速（設計與實測見
+`docs/architecture/vector-search.md`）。**不設定 `PG_DSN` 時系統行為與
+原本完全相同**。
+
+### Docker Compose（單一 pgvector 實例）
+
+```bash
+PG_DSN='postgresql://wiki:wikipass@pg:5432/wiki' \
+MOCK_EMBEDDINGS=true \
+docker compose --profile pg up -d
+```
+
+- `--profile pg` 啟動單一 `pgvector/pgvector:pg16` 實例；索引可選且可
+  重建，PG 掛掉讀取自動 fallback、恢復後 reindex 即可，所以單實例足夠
+- 客戶端已支援多主機 failover DSN，未來要上 HA 叢集只動 compose 與
+  `PG_DSN`（見 `db/README.md`）
+- 真實 embeddings：把 `MOCK_EMBEDDINGS` 改為 `false` 並設定
+  `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY`（任何 OpenAI-compatible
+  `/v1/embeddings`，見 `.env-example`）
+
+### 本地開發（單節點 Postgres）
+
+```bash
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pg -e POSTGRES_DB=wiki \
+  pgvector/pgvector:pg16
+# 兩個服務都帶上：
+export PG_DSN='postgresql://postgres:pg@localhost:5432/wiki'
+export MOCK_EMBEDDINGS=true
+```
+
+（沒有 Docker 時：`apt install postgresql-16 postgresql-16-pgvector` 也可。）
+
+### 在既有資料上啟用（bootstrap）
+
+wiki.json 已有資料時，啟用 PG 後做一次全量重建：
+
+```bash
+curl -X POST http://localhost:8001/admin/reindex \
+  -H "X-API-Key: $PROCESSOR_API_KEY"
+# {"status":"ok","apps":150,"entries":3000,"embedded":3000}
+```
+
+之後每次 `/process` 提交會自動增量同步。驗證：
+
+```bash
+curl http://localhost:8002/wiki_info            # vector_index 區塊
+curl 'http://localhost:8002/semantic_search?query=inventory%20health&top_k=5'
+```
+
+---
+
 ## 驗證安裝
 
 ### 1. 檢查服務健康狀態

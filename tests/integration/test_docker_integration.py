@@ -59,6 +59,15 @@ class WikiTestClient:
             async with session.get(f"{self.mcp_url}/list_apis") as resp:
                 return await resp.json()
 
+    async def semantic_search(self, query: str, top_k: int = 5) -> Dict[str, Any]:
+        """語意搜尋（需要 PG+pgvector；不可用時 server 端自動降級為關鍵字）"""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{self.mcp_url}/semantic_search",
+                params={"query": query, "top_k": top_k},
+            ) as resp:
+                return await resp.json()
+
     async def get_api_detail(self, module: str, api_key: str) -> Dict[str, Any]:
         """獲取 API 詳情（module + api_key 為必填參數）"""
         async with aiohttp.ClientSession() as session:
@@ -330,6 +339,70 @@ async def test_scenario_6_incremental_update():
         return False
 
 
+async def test_scenario_7_semantic_search():
+    """場景 7：語意搜尋（PG+pgvector 索引）
+
+    向量索引未啟用（PG_DSN 未設定 / PG 不可用）時自動跳過 —— 與
+    test_pg_store.py 的 auto-skip 慣例一致。
+    """
+    print("\n" + "="*70)
+    print("📝 場景 7：語意搜尋 - /semantic_search")
+    print("="*70)
+
+    client = WikiTestClient(WIKI_PROCESSOR_URL, MCP_SERVER_URL)
+
+    print("\n1️⃣ 檢查向量索引狀態...")
+    wiki_info = await client.get_wiki_info()
+    vector_index = wiki_info.get("vector_index", {})
+    if not vector_index.get("available"):
+        print("   ⏭️  向量索引未啟用（PG_DSN 未設定或 PG 不可用），跳過場景 7")
+        return True
+    print(f"   ✅ 向量索引可用：{vector_index.get('entries')} entries, "
+          f"{vector_index.get('embedded')} embedded")
+
+    app_name = "app-vector-demo"
+    print(f"\n2️⃣ 提交 {app_name} ...")
+    result = await client.submit_wiki(
+        app_name, "v1.0.0", create_app_markdown(app_name, "v1.0.0")
+    )
+    if result.get("status") != "success":
+        print(f"   ❌ 提交失敗：{result}")
+        return False
+    print("   ✅ 提交成功")
+
+    print(f"\n3️⃣ 語意搜尋 'vector demo health check'...")
+    search = await client.semantic_search("vector demo health check")
+    mode = search.get("mode")
+    results = search.get("results", [])
+    print(f"   模式：{mode}，結果數：{len(results)}")
+
+    if mode != "semantic":
+        print(f"   ❌ 預期 mode=semantic，得到 {mode}")
+        return False
+    if not results:
+        print("   ❌ 語意搜尋沒有結果")
+        return False
+
+    top = results[0]
+    print(f"   Top-1：{top['module']} / {top['api_key']} (score={top.get('score')})")
+    if top.get("source_app") != app_name:
+        print(f"   ❌ Top-1 不是 {app_name} 的 entry：{top}")
+        return False
+    if not (0.0 < top.get("score", 0) <= 1.0001):
+        print(f"   ❌ score 不在 (0, 1] 區間：{top.get('score')}")
+        return False
+
+    print(f"\n4️⃣ 驗證索引計數隨提交成長...")
+    after = (await client.get_wiki_info()).get("vector_index", {})
+    if not after.get("entries", 0) > 0:
+        print(f"   ❌ 索引 entries 異常：{after}")
+        return False
+    print(f"   ✅ entries={after.get('entries')}, embedded={after.get('embedded')}, "
+          f"last_sync={after.get('last_sync')}")
+
+    return True
+
+
 async def main():
     """執行所有測試"""
     print("\n" + "🚀 " * 25)
@@ -358,6 +431,9 @@ async def main():
         # 場景 6：增量更新
         result6 = await test_scenario_6_incremental_update()
 
+        # 場景 7：語意搜尋（向量索引未啟用時自動跳過）
+        result7 = await test_scenario_7_semantic_search()
+
         # 最終報告
         print("\n" + "="*70)
         print("✅ Docker 集成測試完成！")
@@ -370,6 +446,7 @@ async def main():
             "場景 4 - 獲取 API 詳情": result4,
             "場景 5 - 並行提交": result5,
             "場景 6 - 增量更新": result6,
+            "場景 7 - 語意搜尋": result7,
         }
 
         print("\n📊 測試結果總結：")

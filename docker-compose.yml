@@ -43,9 +43,18 @@ services:
       MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8002}
       # /process auth — leave empty for unauthenticated dev mode
       PROCESSOR_API_KEY: ${PROCESSOR_API_KEY:-}
+      # Optional PG+pgvector index (empty = disabled; see profile "pg")
+      PG_DSN: ${PG_DSN:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+      MOCK_EMBEDDINGS: ${MOCK_EMBEDDINGS:-true}
     depends_on:
       minio:
         condition: service_healthy
+    # No depends_on for pg-*: the index layer is optional and best-effort;
+    # the service must boot and serve even when PG is absent or down.
     networks:
       - wiki-network
     command: python main.py
@@ -62,6 +71,13 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-wiki-data}
+      PG_DSN: ${PG_DSN:-}
+      PG_RETRY_SECONDS: ${PG_RETRY_SECONDS:-30}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
+      MOCK_EMBEDDINGS: ${MOCK_EMBEDDINGS:-true}
     depends_on:
       minio:
         condition: service_healthy
@@ -69,8 +85,40 @@ services:
       - wiki-network
     command: python http_api/main.py
 
+  # ---------------------------------------------------------------------
+  # Optional PG+pgvector index (single instance). Enable with:
+  #
+  #   PG_DSN='postgresql://wiki:wikipass@pg:5432/wiki' \
+  #     docker compose --profile pg up -d
+  #
+  # Plain `docker compose up` ignores this service entirely.
+  # The app layer only requires "any PG with pgvector + pg_trgm", and
+  # already supports multi-host failover DSNs — moving to an HA cluster
+  # (repmgr/Patroni/managed PG) later touches only this file and PG_DSN.
+  # ---------------------------------------------------------------------
+  pg:
+    image: pgvector/pgvector:pg16
+    container_name: wiki-pg
+    profiles: ["pg"]
+    environment:
+      POSTGRES_USER: ${PG_USER:-wiki}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-wikipass}
+      POSTGRES_DB: ${PG_DATABASE:-wiki}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-wiki} -d ${PG_DATABASE:-wiki}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wiki-network
+
 volumes:
   minio_data:
+  pg_data:
+
 
 networks:
   wiki-network:

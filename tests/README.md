@@ -34,26 +34,45 @@ mcp-server/http_api/test_http_api.py  # HTTP API spec tests
   replaces only that app's entries; v2 schema migration
 - `wiki-processor/tests/test_storage_cas.py` — MinIO conditional-write behavior
   (runs against a real MinIO, auto-skips when unreachable)
+- `wiki-processor/tests/test_embeddings.py` — embedding config/client/mock
+  (determinism, golden values, batching, error mapping)
+- `wiki-processor/tests/test_vector_sync.py` — PG index sync wiring: best-effort
+  contract (embedder/PG failures never fail the wiki write), reindex
+- `wiki-processor/tests/test_pg_store.py` — PGVectorStore against a **real
+  Postgres+pgvector** (auto-skips when `PG_TEST_DSN` host unreachable, like
+  the CAS tests); includes the multi-host DSN failover smoke
 - `mcp-server/tests/test_rate_limit.py` — token-bucket middleware (burst, 429, refill)
 - `mcp-server/tests/test_wiki_service.py` — wiki service methods
 - `mcp-server/tests/test_cache.py` — cache TTL + exact-match invalidation
+- `mcp-server/tests/test_pg_read_path.py` — PG-first reads with wiki fallback,
+  `/semantic_search` degradation modes, circuit breaker
+- `mcp-server/tests/test_embeddings.py` — **golden-pinned** mock_embed identity
+  with the wiki-processor copy (query and index vectors must share one space)
 - `mcp-server/http_api/test_http_api.py` — HTTP read API behavior spec
 
 Unit tests are **hermetic** — no MinIO or LLM API required
-(`wiki-processor/tests/conftest.py` stubs the Minio SDK and sets `MOCK_LLM=true`).
+(each package's `tests/conftest.py` stubs the Minio SDK; wiki-processor's
+also sets `MOCK_LLM=true` / `MOCK_EMBEDDINGS=true`). Exceptions: the
+real-MinIO CAS tests and real-PG store tests, which auto-skip.
 
 **Run unit tests:**
 ```bash
-cd wiki-processor && python -m pytest          # 33 tests (CAS tests skip without MinIO)
-cd mcp-server && python -m pytest              # 28 tests (tests/ + http_api/)
+cd wiki-processor && python -m pytest          # 73 tests (CAS/PG tests skip without servers)
+cd mcp-server && python -m pytest              # 42 tests (tests/ + http_api/)
+
+# real-PG store tests need any Postgres with pgvector:
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pg -e POSTGRES_DB=wiki pgvector/pgvector:pg16
+# (default PG_TEST_DSN=postgresql://postgres:pg@localhost:5432/wiki)
 ```
 
 ### Integration Tests
 **Location:** `tests/integration/`
 
 - `test_processor.py` — payload/logic validation (pytest, no services needed)
-- `test_docker_integration.py` — end-to-end: 6 scenarios against running services
-  (single app, multi app, wiki structure, API detail, 10 parallel apps, incremental update)
+- `test_docker_integration.py` — end-to-end: 7 scenarios against running services
+  (single app, multi app, wiki structure, API detail, 10 parallel apps,
+  incremental update, semantic search — scenario 7 auto-skips when
+  `wiki_info.vector_index.available` is false)
 
 **Requires running services** — either `docker-compose up`, or without docker
 (see `docs/troubleshooting.md` § 在沒有 Docker 的環境執行測試): local MinIO
@@ -72,7 +91,10 @@ python tests/integration/test_docker_integration.py      # script, needs service
   no lost updates, resubmission replacement, app isolation, audit completeness
 - `test_real_service_stress.py` — **100 concurrent apps against the real HTTP
   services + real MinIO (real ETag conditional writes)**; asserts per-app
-  integrity: every app's derived entries must appear in the final wiki
+  integrity: every app's derived entries must appear in the final wiki.
+  Prints p50/p95 `processing_time_ms`; when the PG vector index is enabled it
+  additionally asserts PG entry counts and semantic findability for 5 sampled
+  apps (run once with and once without `PG_DSN` to quantify sync overhead)
 
 **Run stress tests:**
 ```bash
@@ -96,14 +118,17 @@ python tests/stress/test_real_service_stress.py    # needs running services
 | `PROCESSOR_API_KEY` | (unset) | /process auth key; integration/stress clients send it automatically |
 | `RATE_LIMIT_RPS` | 0 | mcp-server per-IP rate limit (0 = disabled) |
 | `STRESS_N_APPS` | 100 | App count for `test_real_service_stress.py` |
+| `PG_DSN` | (unset) | Enables the PG vector index in both services |
+| `PG_TEST_DSN` | postgresql://postgres:pg@localhost:5432/wiki | Target for `test_pg_store.py` |
+| `MOCK_EMBEDDINGS` | false (true in unit conftest) | Deterministic local embeddings, no network |
 
 ## ✅ Expected Results
 
 | Test Suite | Expected Status | Duration |
 |-----------|-----------------|----------|
-| Unit tests (61 total) | All passing | ~2s |
-| Integration tests (6 scenarios) | All passing | ~10s |
-| Stress tests | All passing | ~10s (with MOCK_LLM=true) |
+| Unit tests (115 total) | All passing | ~8s |
+| Integration tests (7 scenarios) | All passing | ~10s |
+| Stress tests | All passing | ~15s (with MOCK_LLM=true) |
 
 Latest verified run: see `docs/test-results.md`.
 
