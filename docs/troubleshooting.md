@@ -193,6 +193,7 @@ json.JSONDecodeError: Expecting value
        "model": "MiniMax-M2.7",
        "messages": [{"role": "user", "content": "test"}],
      },
+     verify=False
    )
    print(f"Status: {response.status_code}")
    print(f"Response: {response.text[:200]}")
