@@ -162,7 +162,8 @@ async def test_rebuild_replaces_everything(store):
 
 
 async def test_multihost_dsn_skips_dead_host():
-    """The repmgr failover contract: with target_session_attrs=read-write,
+    """The HA-failover contract (future clusters need no code change):
+    with target_session_attrs=read-write,
     libpq walks the host list until it finds a writable server, so a dead
     (or demoted) first host is skipped transparently."""
     user_info, _, rest = _DSN.partition("@")

@@ -86,35 +86,26 @@ services:
     command: python http_api/main.py
 
   # ---------------------------------------------------------------------
-  # Optional PG+pgvector HA cluster (1 primary + 2 standbys, repmgr
-  # automatic failover). Enable with:
+  # Optional PG+pgvector index (single instance). Enable with:
   #
-  #   PG_DSN='postgresql://wiki:wikipass@pg-0:5432,pg-1:5432,pg-2:5432/wiki?target_session_attrs=read-write' \
+  #   PG_DSN='postgresql://wiki:wikipass@pg:5432/wiki' \
   #     docker compose --profile pg up -d
   #
-  # Plain `docker compose up` ignores these services entirely.
+  # Plain `docker compose up` ignores this service entirely.
+  # The app layer only requires "any PG with pgvector + pg_trgm", and
+  # already supports multi-host failover DSNs — moving to an HA cluster
+  # (repmgr/Patroni/managed PG) later touches only this file and PG_DSN.
   # ---------------------------------------------------------------------
-  pg-0: &pg-node
-    build:
-      context: ./db
-      dockerfile: Dockerfile
-    image: llm-wiki-pg:16
-    container_name: wiki-pg-0
+  pg:
+    image: pgvector/pgvector:pg16
+    container_name: wiki-pg
     profiles: ["pg"]
-    environment: &pg-env
-      POSTGRESQL_POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD:-postgrespass}
-      POSTGRESQL_USERNAME: ${PG_USER:-wiki}
-      POSTGRESQL_PASSWORD: ${PG_PASSWORD:-wikipass}
-      POSTGRESQL_DATABASE: ${PG_DATABASE:-wiki}
-      REPMGR_PASSWORD: ${REPMGR_PASSWORD:-repmgrpass}
-      REPMGR_PRIMARY_HOST: pg-0
-      REPMGR_PARTNER_NODES: pg-0,pg-1,pg-2
-      REPMGR_NODE_NAME: pg-0
-      REPMGR_NODE_NETWORK_NAME: pg-0
+    environment:
+      POSTGRES_USER: ${PG_USER:-wiki}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-wikipass}
+      POSTGRES_DB: ${PG_DATABASE:-wiki}
     volumes:
-      - pg0_data:/bitnami/postgresql
-      # Extension bootstrap runs only where the cluster is initialized (pg-0);
-      # standbys clone the data dir via pg_basebackup and inherit it.
+      - pg_data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-wiki} -d ${PG_DATABASE:-wiki}"]
@@ -124,31 +115,10 @@ services:
     networks:
       - wiki-network
 
-  pg-1:
-    <<: *pg-node
-    container_name: wiki-pg-1
-    environment:
-      <<: *pg-env
-      REPMGR_NODE_NAME: pg-1
-      REPMGR_NODE_NETWORK_NAME: pg-1
-    volumes:
-      - pg1_data:/bitnami/postgresql
-
-  pg-2:
-    <<: *pg-node
-    container_name: wiki-pg-2
-    environment:
-      <<: *pg-env
-      REPMGR_NODE_NAME: pg-2
-      REPMGR_NODE_NETWORK_NAME: pg-2
-    volumes:
-      - pg2_data:/bitnami/postgresql
-
 volumes:
   minio_data:
-  pg0_data:
-  pg1_data:
-  pg2_data:
+  pg_data:
+
 
 networks:
   wiki-network:

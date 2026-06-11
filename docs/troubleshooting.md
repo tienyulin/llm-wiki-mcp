@@ -613,14 +613,18 @@ DROP TABLE api_entries, index_state, app_sync CASCADE;
 （`EMBEDDING_BASE_URL` 或 `MOCK_EMBEDDINGS=true`）；(4) 索引是否為空
 （`entries: 0` → 先 reindex）；(5) mcp-server log 中的具體錯誤。
 
-### repmgr failover 後寫入失敗 / 出現兩個 primary
+### PG 容器資料壞掉 / 想重來
 
-- 客戶端 DSN 必須是多主機 + `target_session_attrs=read-write`，failover
-  後新連線會自動跳過 demoted 節點。promotion 窗口內的同步失敗走
-  best-effort 路徑，事後 reindex 即可。
-- 舊 primary 重新上線可能自認 primary（split-brain）。以
-  `docker exec wiki-pg-0 repmgr node rejoin` 重新加入；若資料狀態可疑，
-  直接 wipe volume 重建 —— PG 只是衍生索引，事實來源永遠是 wiki.json。
+PG 只是衍生索引，事實來源永遠是 wiki.json。直接 wipe 重建：
+
+```bash
+docker compose --profile pg down && docker volume rm llm-wiki-mcp_pg_data
+docker compose --profile pg up -d
+curl -X POST http://localhost:8001/admin/reindex -H "X-API-Key: $PROCESSOR_API_KEY"
+```
+
+（升級到 HA 叢集時客戶端用多主機 DSN + `target_session_attrs=read-write`
+即可自動跳過 dead/demoted 節點，應用程式碼不用改，見 `db/README.md`。）
 
 ### 寫入變慢了？
 

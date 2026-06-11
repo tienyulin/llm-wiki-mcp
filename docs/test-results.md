@@ -31,11 +31,10 @@ mcp :8003 無 PG 對照組）、`MOCK_LLM=true`、`MOCK_EMBEDDINGS=true`。
 `/admin/reindex` = 94 s（bulk insert + HNSW/GIN 一次性重建）。
 完整分析見 `docs/architecture/vector-search.md`。
 
-**未在本沙盒驗證**：3 節點 repmgr 叢集實際 failover（Docker Hub 匿名
-拉取限流，`bitnamilegacy/postgresql-repmgr:16` 無法取得）。客戶端
-failover 語意已由多主機 DSN smoke 測試覆蓋；叢集本身的 failover 需在
-有映像的環境以 `docker compose --profile pg up` + `docker stop wiki-pg-0`
-驗證（步驟見 `docs/guides/local-setup.md`）。
+**拓撲**：依後續決定，compose 出貨為**單一 pgvector 實例**（profile
+`pg`）。沙盒實測用本機 apt 安裝的 PG16 + pgvector 0.6，與
+`pgvector/pgvector:pg16` 等價。客戶端多主機 failover DSN 能力保留並有
+測試覆蓋，未來升級 HA 叢集只動 compose 與 `PG_DSN`。
 
 ---
 

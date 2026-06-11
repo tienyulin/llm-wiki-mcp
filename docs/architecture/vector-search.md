@@ -102,16 +102,13 @@ O(n) 序列化，屬罕用操作，保留 PG-first 以維持語意一致）。
 - **漂移**（PG 停機期間有提交）：audit 旗標 + `/wiki_info.vector_index.
   last_sync` 對照 wiki `metadata.updated_at` 可觀測；`POST /admin/reindex`
   修復；`app_sync` guard 防跨副本亂序。
-- **HA 拓撲**：compose profile `pg` = pg-0（primary）+ pg-1/pg-2（standby），
-  repmgr 自動 failover，無 pgpool。客戶端用多主機 DSN
-  `...@pg-0:5432,pg-1:5432,pg-2:5432/wiki?target_session_attrs=read-write`
-  ——libpq 逐一嘗試直到找到可寫節點（dead/demoted 節點自動跳過，
-  `test_pg_store.py::test_multihost_dsn_skips_dead_host` 驗證）。舊 primary
-  回歸需 `repmgr node rejoin`；最壞情況 wipe + reindex 永遠安全。
-- **映像**：`db/Dockerfile` 以 `bitnamilegacy/postgresql-repmgr:16` 為 base
-  從 source 編譯 pgvector（Broadcom 已凍結 bitnami 免費目錄）。app 只要求
-  「任何有 pgvector + pg_trgm 的 PG」，未來換 Patroni/CloudNativePG/管理式
-  PG 只動 Dockerfile 與 compose。
+- **拓撲**：compose profile `pg` = 單一 `pgvector/pgvector:pg16` 實例。
+  索引可選且可重建，單實例的耐久性是可接受的：PG 死掉讀取自動 fallback，
+  恢復後 `/admin/reindex` 重建即可。客戶端（psycopg3）已支援多主機
+  failover DSN（`host=a,b,c` + `target_session_attrs=read-write`，
+  `test_pg_store.py::test_multihost_dsn_skips_dead_host` 驗證），未來升級
+  HA 叢集（repmgr/Patroni/CloudNativePG/管理式 PG）只動 compose 與
+  `PG_DSN`，應用程式碼零修改。
 - **換 embedding 模型/維度**：`ensure_schema` 偵測 `vector(D)` 與
   `EMBEDDING_DIM` 不符即明確報錯（實測驗證過此路徑）；程序 = drop tables
   → `/admin/reindex`。每列存 `embedding_model` 供遷移期過濾。

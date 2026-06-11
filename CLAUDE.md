@@ -133,8 +133,9 @@ Design + measured numbers: `docs/architecture/vector-search.md`.
   every read endpoint falls back to the cached-wiki path on PG failure
 - `mcp-server/services/embeddings.py` — query-side `mock_embed` copy,
   **golden-pinned** against the processor copy (change both together)
-- `db/Dockerfile` — bitnami repmgr base + pgvector; compose profile `pg`
-  runs pg-0/pg-1/pg-2 (1 primary + 2 standby, multi-host DSN failover)
+- `db/` — extension bootstrap + topology notes; compose profile `pg` runs a
+  single pgvector/pgvector:pg16 instance (client already supports multi-host
+  failover DSNs, so an HA cluster later is a compose-only change)
 
 ### Git Push 403 Issue (Resolved)
 

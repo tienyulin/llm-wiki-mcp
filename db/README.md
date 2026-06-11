@@ -6,29 +6,35 @@ single source of truth). If PG state is ever wrong or lost: wipe it and call
 
 ## Layout
 
-- `Dockerfile` — bitnami repmgr base image with the pgvector extension
-  compiled in. Used by the `pg-0`/`pg-1`/`pg-2` services in
-  `docker-compose.yml` (profile `pg`).
-- `init/01-extension.sql` — `CREATE EXTENSION vector`, run as superuser on
-  the primary's first boot.
+- `init/01-extension.sql` — `CREATE EXTENSION vector / pg_trgm`, run as
+  superuser on the database's first boot (mounted into the compose `pg`
+  service's `/docker-entrypoint-initdb.d`).
 
 ## Where is the table DDL?
 
 In code: `wiki-processor/storage/pg_store.py` → `PGVectorStore.ensure_schema()`.
 It is idempotent and runs on startup/first use, so the schema works against
-**any** PG with pgvector installed (the test suite uses a plain
-`pgvector/pgvector:pg16` container). Keeping one executable copy avoids
-SQL-file/code drift; this directory only handles what requires superuser or
-image-level work.
+**any** PG with pgvector + pg_trgm installed. Keeping one executable copy
+avoids SQL-file/code drift; this directory only handles what requires
+superuser at bootstrap time.
 
 ## Topology
 
-1 primary (`pg-0`) + 2 standbys (`pg-1`, `pg-2`) with repmgr automatic
-failover. Clients use a multi-host DSN and let libpq find the writable node:
+A single `pgvector/pgvector:pg16` instance behind compose profile `pg`:
 
 ```
-postgresql://wiki:wikipass@pg-0:5432,pg-1:5432,pg-2:5432/wiki?target_session_attrs=read-write
+PG_DSN='postgresql://wiki:wikipass@pg:5432/wiki' docker compose --profile pg up -d
 ```
+
+The index is optional and rebuildable, so single-instance durability is
+acceptable: if PG dies, reads fall back to the wiki.json path automatically
+and `POST /admin/reindex` restores the index afterwards.
+
+**Scaling up later:** the client code (psycopg3) already supports multi-host
+failover DSNs (`host=a,b,c` + `target_session_attrs=read-write`, covered by
+`test_pg_store.py::test_multihost_dsn_skips_dead_host`), so moving to an HA
+cluster — repmgr, Patroni, CloudNativePG, or a managed PG — touches only
+docker-compose.yml and `PG_DSN`. No application changes.
 
 See `docs/architecture/vector-search.md` for the full design and failure
 semantics.

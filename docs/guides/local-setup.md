@@ -184,18 +184,18 @@ curl http://localhost:8002/health
 `docs/architecture/vector-search.md`）。**不設定 `PG_DSN` 時系統行為與
 原本完全相同**。
 
-### Docker Compose（3 節點 HA 叢集）
+### Docker Compose（單一 pgvector 實例）
 
 ```bash
-PG_DSN='postgresql://wiki:wikipass@pg-0:5432,pg-1:5432,pg-2:5432/wiki?target_session_attrs=read-write' \
+PG_DSN='postgresql://wiki:wikipass@pg:5432/wiki' \
 MOCK_EMBEDDINGS=true \
-docker compose --profile pg up -d --build
+docker compose --profile pg up -d
 ```
 
-- `--profile pg` 啟動 pg-0（primary）+ pg-1/pg-2（standby），repmgr 自動
-  failover；映像由 `db/Dockerfile` 建置（bitnami repmgr base + pgvector）
-- 多主機 DSN + `target_session_attrs=read-write`：failover 後客戶端自動
-  找到新 primary，毋需 pgpool
+- `--profile pg` 啟動單一 `pgvector/pgvector:pg16` 實例；索引可選且可
+  重建，PG 掛掉讀取自動 fallback、恢復後 reindex 即可，所以單實例足夠
+- 客戶端已支援多主機 failover DSN，未來要上 HA 叢集只動 compose 與
+  `PG_DSN`（見 `db/README.md`）
 - 真實 embeddings：把 `MOCK_EMBEDDINGS` 改為 `false` 並設定
   `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY`（任何 OpenAI-compatible
   `/v1/embeddings`，見 `.env-example`）
