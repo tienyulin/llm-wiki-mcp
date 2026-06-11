@@ -95,7 +95,17 @@ MINIO_BUCKET=wiki-data
 
 # 可選：使用 Mock LLM（無需真實 API Key）
 # MOCK_LLM=true
+
+# 可選：/process 認證（生產環境建議啟用；不設定 = dev mode 不驗證）
+# PROCESSOR_API_KEY=change-me
+
+# 可選：mcp-server 限速（每 IP requests/sec；0 = 停用）
+# RATE_LIMIT_RPS=0
 ```
+
+> 啟用 `PROCESSOR_API_KEY` 後，所有對 `POST /process` 的呼叫都必須帶
+> `X-API-Key` header（官方 CI template 與 `examples/send_to_processor.py`
+> 會自動從同名環境變數帶上）。
 
 ---
 

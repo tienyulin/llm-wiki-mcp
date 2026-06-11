@@ -1,5 +1,27 @@
 # LLM Wiki MCP - 測試報告
 
+## 2026-06-11（下午）— 優化工作包（schema v2 / CAS / 認證 / 限速）
+
+**環境**：本地 MinIO binary（RELEASE.2025-09，支援 S3 條件寫入）+ uvicorn、
+`MOCK_LLM=true`、`PROCESSOR_API_KEY` 啟用、Python 3.11 venv。
+
+| 測試 | 指令 | 結果 |
+|------|------|------|
+| wiki-processor 單元（CAS、並發、auth、遷移） | `cd wiki-processor && python -m pytest` | **33 passed** |
+| mcp-server 單元（rate limit、cache、API spec） | `cd mcp-server && python -m pytest` | **28 passed** |
+| 整合 e2e（6 scenarios，含認證） | `python tests/integration/test_docker_integration.py` | **6/6 通過** |
+| 壓力（mock CAS storage） | `python tests/stress/test_mock_stress.py` | **100/100 成功、無 lost update、隔離與 audit 驗證通過** |
+| 壓力（真實服務 + 真實條件寫入） | `python tests/stress/test_real_service_stress.py` | **100/100 成功、per-app entries 逐一驗證無遺失（~15 apps/sec，LLM 並行）、audit 100/100** |
+
+**關鍵差異 vs 上午（v1 大鎖）**：
+- 多副本安全：寫入改 MinIO ETag 條件寫入（CAS），跨副本衝突由重試解決
+- LLM 呼叫不再被鎖序列化，真實 LLM 下吞吐由並行 LLM 呼叫決定
+- per-app 完整性現在可以在 mock 模式下端到端驗證（mock 從輸入推導 entries）
+- 認證（401）與 rate limit（429）皆有自動化測試
+- 舊 v1 資料模型的 3 個壓測腳本已由 `test_mock_stress.py` 取代
+
+---
+
 ## 2026-06-11 — 全面 Review 修正後測試
 
 **環境**：無 docker daemon 的沙箱；本地 MinIO binary（:9000）+ uvicorn

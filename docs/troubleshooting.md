@@ -472,6 +472,27 @@ docker-compose exec wiki-processor env | grep MINIMAX
 
 ---
 
+## Schema v2 遷移與認證（2026-06-11）
+
+### 症狀：`POST /process` 回 401
+
+`PROCESSOR_API_KEY` 已設定但請求未帶（或帶錯）`X-API-Key` header。
+CI 端把 `PROCESSOR_API_KEY` 設為 masked variable 即可（官方 template 與
+`send_to_processor.py` 會自動帶上）。本地開發可不設定該變數（dev mode）。
+
+### 症狀：升級後 wiki 中的舊文件條目消失
+
+v2 schema 移除了 v1 的 file-map 條目（`"file.md": "<markdown>"` 形態）。
+首次更新時 processor 會 lazy 遷移：保留結構化的 `apis`，丟棄 file-map
+條目並記 warning。受影響的應用在下一次 CI 提交時自動重建自己的 entries。
+
+### 症狀：mcp-server 查詢回 429
+
+`RATE_LIMIT_RPS` 已啟用且超過限速。回應帶 `Retry-After: 1`；
+調高該值或設為 0 停用。
+
+---
+
 ## 並發更新問題（2026-06-11 修復）
 
 ### 症狀：多個應用同時提交時，部分更新遺失
@@ -480,12 +501,9 @@ docker-compose exec wiki-processor env | grep MINIMAX
 LLM 呼叫。在修復前，並發請求會讀到相同的 wiki 狀態並互相覆蓋（lost update）。
 實測 20 個並發更新只有 1 個存活。
 
-**修復：** processor 內部以 `asyncio.Lock` 序列化整條 pipeline
-（讀 snapshot → LLM → 寫 wiki → audit log）。回歸測試：
-`wiki-processor/tests/test_concurrency.py`。
-
-**已知限制：** 鎖是 process-local 的，只保護單一副本部署（目前
-docker-compose 為 1 副本）。多副本部署需要 MinIO 條件寫入（ETag CAS），
+**修復（v2，現行）：** 兩階段更新 —— LLM 呼叫完全並行，merge+寫入走
+MinIO ETag 條件寫入（CAS loop）+ 進程內小鎖。**多副本部署安全**。
+回歸測試：`wiki-processor/tests/test_concurrency.py`（含 CAS 衝突注入）。
 詳見 `docs/architecture/concurrency.md`。
 
 ### 症狀：第二次起的 app-level 更新都回傳 `status: failed`

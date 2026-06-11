@@ -1,70 +1,81 @@
 # 並發控制設計（Concurrency）
 
-**狀態：** 已實作（2026-06-11）
-**範圍：** wiki-processor 的 wiki 更新 pipeline 與 mcp-server 快取
+**狀態：** v2 — ETag CAS + 兩階段更新（2026-06-11）
+**取代：** v1 的單一 process-local `asyncio.Lock`（會序列化 LLM 呼叫，且無法保護多副本）
 
 ---
 
 ## 問題
 
-所有應用共用同一個 `wiki.json` 物件。`WikiProcessor.process()` 的流程是：
+所有應用共用同一個 `wiki.json`。更新流程「讀 wiki → LLM 呼叫 → 寫 wiki」
+橫跨一次秒級的 awaited LLM 呼叫，沒有並發控制時後寫者會覆蓋先寫者
+（實測 20 個並發更新只有 1 個存活）。v1 用一把大鎖修正了正確性，但代價是
+LLM 呼叫被完全序列化，且鎖是 process-local —— 多副本部署仍會 race。
+
+## 解法：兩階段 + ETag CAS
 
 ```
-讀 snapshot/wiki  →  await LLM 呼叫  →  寫 wiki/snapshot  →  寫 audit log
+Phase 1（無鎖、完全並行）
+  讀 wiki + ETag ──► 取出該 app 現有 entries ──► LLM 呼叫（秒級）
+
+Phase 2（process-local lock + CAS loop，毫秒級）
+  merge（替換該 app 的 entries）──► put_json_if_match(etag)
+       ▲                                    │ 412 conflict
+       └──── 重讀 wiki + ETag ◄─────────────┘   （上限 5 次，jitter backoff）
 ```
 
-讀與寫之間隔著一次 awaited LLM 呼叫（讓出 event loop 控制權）。沒有同步
-機制時，並發請求會讀到相同的 wiki 狀態，後寫者覆蓋先寫者的結果。
-實測 20 個並發 app 更新只有 1 個存活（lost update rate 95%）。
+- **跨副本安全**：寫入用 MinIO 條件寫入（`If-Match: <etag>`，首次建立用
+  `If-None-Match: *`）。另一個副本搶先寫入時本副本收到 412，重讀、重 merge、
+  重試 —— LLM 結果不變，重試只是毫秒級的 merge+write。
+- **同進程突發**：Phase 2 另外包一把 process-local `asyncio.Lock`。
+  純 CAS 在 N 路同進程突發下每輪只有一個贏家，重試預算會被耗盡；
+  鎖把進程內的 Phase 2 串行化（鎖內只有一次 storage roundtrip），
+  CAS 重試只需應付跨副本衝突。
+- **吞吐**：LLM 呼叫（瓶頸）完全並行。100 個並發 app 實測（mock LLM、
+  真實 MinIO）：100/100 成功、無 lost update。
 
-這與「支援 100+ 應用並行更新」的設計目標直接矛盾。
+## minio-py 實作備註
 
-## 解法：process-local asyncio.Lock
+minio-py 7.2.x 的公開 `put_object` 不接受自訂 headers；條件寫入透過
+`Minio._put_object(bucket, key, data, headers)`（私有但穩定，內部單次 PUT
+路徑）。412 以 `S3Error(code="PreconditionFailed")` 拋出。
+`wiki-processor/tests/test_storage_cas.py` 直接對真實 MinIO 驗證此行為，
+minio 版本升級若破壞此 API 會立即被測試抓到。
 
-`WikiProcessor` 持有一把 `asyncio.Lock`，`process()` 的完整 pipeline
-（含失敗路徑的 audit log）都在鎖內執行。
+## 周邊設計
 
-**為什麼不用 per-app lock：** 所有 app 都 read-modify-write 同一個
-`wiki.json`，per-app 鎖無法防止跨 app 的 lost update。
+- **Audit log**：每筆一個 append-only 物件（`audit/{iso-ts}-{uuid8}.json`），
+  消除共用 NDJSON 檔的 read-modify-write 爭用。讀取 = list `audit/` prefix。
+- **Snapshots**：app-level 更新寫 `snapshots/{app}.json`（v1 會覆寫全域
+  snapshot、吃掉其他 app 的記錄）；無 `source_app` 的全量更新才寫全域
+  `markdowns_snapshot.json`。內容未變的重複提交直接跳過 LLM。
+- **Storage 非阻塞**：minio-py 是同步的；async 呼叫端透過
+  `MinioStorage` 的 async facade（`asyncio.to_thread`）存取，
+  mcp-server 的 wiki 讀取同樣走 `to_thread`。
+- **快取一致性**：wiki-processor 成功更新後呼叫 mcp-server
+  `POST /cache/invalidate`（`MCP_SERVER_URL`，best-effort）。
 
-**取捨：**
+## 資料模型（schema v2）
 
-| 面向 | 影響 |
-|------|------|
-| 正確性 | ✅ 單副本部署下完全消除 lost update（單元 + 真實服務壓測驗證） |
-| 吞吐量 | LLM 呼叫被序列化。真實 LLM 每次呼叫秒級，吞吐 = 1/LLM延遲；mock 模式實測 ~20 apps/sec |
-| 部署限制 | ⚠️ 鎖是 process-local 的，**只在單副本（目前 docker-compose 配置）下有效** |
+```json
+{
+  "schema_version": 2,
+  "apis": {"<module>": {"<METHOD /path>": {"...": "...", "source_app": "...", "source_version": "..."}}},
+  "metadata": {"version": "...", "created_at": "...", "updated_at": "..."}
+}
+```
 
-## 已知限制與未來方向
-
-1. **多副本部署**：需要存儲層的原子性 —— MinIO 條件寫入（ETag
-   compare-and-swap）或外部鎖（Redis/etcd）。列為 Phase 9 前置工作。
-2. **兩階段更新（吞吐優化）**：LLM 呼叫移出鎖外，鎖內只做
-   re-read + merge + write。可將序列化窗口從秒級縮到毫秒級，
-   但 merge 語意需要先把 wiki 資料模型統一（見下）。
-3. **同步 MinIO client**：minio-py 是同步的，會阻塞 event loop。
-   副作用是單一存儲操作對 coroutine 天然原子；遷移到
-   `asyncio.to_thread` 時必須確保鎖仍覆蓋完整 read-modify-write。
-4. **資料模型不一致**：wiki.json 同時存在兩種形態 ——
-   結構化（`{"apis": {...}, "metadata": {...}}`，LLM 全量生成路徑）與
-   檔案映射（`{"path.md": "content", ...}`，app-level 更新路徑）。
-   merge 邏輯已用 `isinstance` 防護，但長期應統一 schema。
-
-## mcp-server 快取一致性
-
-mcp-server 讀取路徑帶 TTL 快取（預設 1 小時，key 為 `wiki`）。
-一致性由 wiki-processor 在每次成功更新後呼叫
-`POST /cache/invalidate`（best-effort，失敗只記 log）維持，
-透過 `MCP_SERVER_URL` 環境變數設定目標。
-
-快取失效採 key segment 精確比對（`:` 分隔），`app-1` 不會誤刪
-`app-10`；共用的 `wiki` 條目聚合所有 app 的資料，任何 app 級失效
-都會一併刪除它。
+- provenance 由 processor 蓋章，不信任 LLM 輸出
+- app-level 更新 = 移除該 `source_app` 的所有 entries 後併入新 entries
+- v1 的混合形態（結構化 + file-map 字串條目）已移除；舊 wiki 讀取時
+  lazy 遷移（保留結構化部分、丟棄 file-map 條目並記 warning），
+  受影響的 app 在下次提交時自動重建
 
 ## 驗證
 
-- `wiki-processor/tests/test_concurrency.py` — 20 個並發 `process()`
-  以會讓出控制權的 fake LLM 驗證無 lost update、audit 完整。
-  （移除鎖後此測試失敗：1/20 存活）
-- `tests/stress/test_real_service_stress.py` — 100 個並發 app 打真實
-  HTTP 服務 + 真實 MinIO：100% 成功、audit log 100/100 無遺失。
+- `wiki-processor/tests/test_concurrency.py` — 20 路並發無 lost update、
+  CAS 衝突注入（模擬另一副本插隊）、重提交取代自身 entries、v2 遷移
+- `wiki-processor/tests/test_storage_cas.py` — 真實 MinIO 條件寫入行為
+- `tests/stress/test_mock_stress.py` — 100 路並發 + 隔離 + audit（in-memory）
+- `tests/stress/test_real_service_stress.py` — 100 路並發打真實服務 +
+  真實 MinIO：per-app 完整性逐一驗證

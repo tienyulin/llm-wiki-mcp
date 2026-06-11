@@ -56,6 +56,7 @@ process-wiki:
       response=$(curl -X POST \
         "$WIKI_PROCESSOR_URL/process" \
         -H "Content-Type: application/json" \
+        -H "X-API-Key: ${PROCESSOR_API_KEY:-}" \
         -d @/tmp/payload.json \
         -w "\n%{http_code}" \
         -s)

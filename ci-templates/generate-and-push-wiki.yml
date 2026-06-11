@@ -20,6 +20,7 @@ stages:
 variables:
   WIKI_PROCESSOR_URL: "${WIKI_PROCESSOR_URL:-http://localhost:8001}"
   WIKI_PROCESSOR_TIMEOUT: "300"
+  # PROCESSOR_API_KEY: set as a masked CI/CD variable when the processor has auth enabled
 
 # ============================================================================
 # Step 1: Generate Markdown Documentation from Source Code
@@ -141,9 +142,13 @@ push_wiki:
       client = httpx.AsyncClient()
 
       async def send_request():
+        headers = {}
+        if os.getenv("PROCESSOR_API_KEY"):
+          headers["X-API-Key"] = os.getenv("PROCESSOR_API_KEY")
         response = await client.post(
           f"{wiki_processor_url}/process",
           json=payload,
+          headers=headers,
           timeout=timeout
         )
         response.raise_for_status()

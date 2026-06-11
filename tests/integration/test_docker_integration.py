@@ -7,6 +7,7 @@ Docker 集成測試：模擬真實的應用提交 wiki 更新到 wiki-processor
 import asyncio
 import aiohttp
 import json
+import os
 from datetime import datetime
 from typing import Dict, Any
 import time
@@ -34,10 +35,15 @@ class WikiTestClient:
             "source_version": version
         }
 
+        headers = {}
+        if os.getenv("PROCESSOR_API_KEY"):
+            headers["X-API-Key"] = os.getenv("PROCESSOR_API_KEY")
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{self.processor_url}/process",
-                json=payload
+                json=payload,
+                headers=headers,
             ) as resp:
                 return await resp.json()
 
