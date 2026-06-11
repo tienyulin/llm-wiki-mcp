@@ -76,11 +76,17 @@ async def send_to_processor(payload: dict, processor_url: str) -> bool:
     print(f"   Markdowns: {len(payload['markdowns'])} files")
     print(f"   Timestamp: {payload['timestamp']}")
 
+    headers = {}
+    api_key = os.getenv("PROCESSOR_API_KEY")
+    if api_key:
+        headers["X-API-Key"] = api_key
+
     async with httpx.AsyncClient(timeout=120.0) as client:
         try:
             response = await client.post(
                 f"{processor_url}/process",
                 json=payload,
+                headers=headers,
             )
 
             print(f"\n📥 Response: HTTP {response.status_code}")
