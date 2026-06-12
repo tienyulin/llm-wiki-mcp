@@ -147,6 +147,24 @@ injection pattern (wiki-processor: `core/deps.py` lru_cache providers +
 test override patterns. Routers live in `api/routers/` (wiki-processor)
 and `http_api/routers/` (mcp-server); data access lives in `repository/`.
 
+### SOP → Spec → Service Pipeline ✅
+
+Upstream example app `flashback-api/` (port 8003, compose profile
+`flashback`) demonstrates the document-driven flow:
+
+1. `sop/oracle-flashback-recovery.md` — human DBA runbook (DBA-SOP-014)
+2. `.claude/skills/sop-to-spec` — generic skill converting any SOP into a
+   self-contained implementation spec (risk tiers read/reversible/
+   irreversible, precondition→HTTP mapping, mock state, test plan)
+3. `specs/oracle-flashback-recovery-api.spec.md` — generated spec; the
+   implementation agent reads ONLY this, never the SOP
+4. `flashback-api/` — three-layer service built from the spec
+   (`MOCK_ORACLE=true` for tests/demo; irreversible ops gated by
+   `confirm` token + `approval_id`, everything audited)
+
+Implementation findings flow back (skill Step 5): missing error codes →
+SOP §7 + spec §6; template gaps → the skill itself.
+
 ### Git Push 403 Issue (Resolved)
 
 If `git push` fails with HTTP 403, use GitHub MCP API instead:

@@ -18,6 +18,7 @@ Welcome to the LLM Wiki MCP documentation. This directory contains all project d
 
 ### 👨‍💻 Development
 - **[Development Guide](guides/development.md)** — Code structure, how to extend, development workflow
+- **[SOP → Spec → Service](../specs/oracle-flashback-recovery-api.spec.md)** — Document-driven flow: SOP (`../sop/`) → spec via `.claude/skills/sop-to-spec` → `flashback-api/` implementation
 - **[GitLab Integration](guides/gitlab-setup.md)** — CI/CD configuration and GitLab integration steps
 
 ### 🔧 Troubleshooting & Monitoring

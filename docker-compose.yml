@@ -115,6 +115,30 @@ services:
     networks:
       - wiki-network
 
+  # ---------------------------------------------------------------------
+  # Optional example upstream app: Oracle Flashback Recovery API
+  # (built from sop/oracle-flashback-recovery.md via the sop-to-spec skill).
+  # Enable with:  docker compose --profile flashback up -d
+  # MOCK_ORACLE=true by default — point ORACLE_DSN at a real instance and
+  # set MOCK_ORACLE=false for production use.
+  # ---------------------------------------------------------------------
+  flashback-api:
+    build: ./flashback-api
+    container_name: flashback-api
+    profiles: ["flashback"]
+    ports:
+      - "8003:8003"
+    environment:
+      MOCK_ORACLE: ${MOCK_ORACLE:-true}
+      ORACLE_DSN: ${ORACLE_DSN:-}
+      ORACLE_USER: ${ORACLE_USER:-}
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-}
+      FLASHBACK_API_KEY: ${FLASHBACK_API_KEY:-}
+      FRA_USAGE_THRESHOLD: ${FRA_USAGE_THRESHOLD:-85}
+    networks:
+      - wiki-network
+    command: python main.py
+
 volumes:
   minio_data:
   pg_data:
