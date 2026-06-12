@@ -162,15 +162,19 @@ Upstream example app `flashback-api/` (port 8003, compose profile
    (`MOCK_ORACLE=true` for tests/demo; irreversible ops gated by
    `confirm` token + `approval_id`, everything audited)
 
-The skill (now v4) was tuned over three blind-audit iterations — an
-independent fresh-context agent reads only the spec and lists everything
-an implementer would have to guess; findings are triaged (rejections
-recorded with reasons) and attributed to SOP/skill/spec/code. Full log:
-`specs/REVIEWS.md`. Key mechanisms that came out of it: EARS acceptance
-criteria, canonical gate order (401→422→404→428→409), interrogation
-checklist, blind-audit gate before coding (Step 5), implementation
-feedback step (Step 6). Generality validated on a second domain:
-`sop/minio-bucket-disaster-recovery.md` →
+The skill (now v5) was tuned over four iterations (full log:
+`specs/REVIEWS.md`). Three blind-audit rounds — an independent
+fresh-context agent reads only the spec and lists everything an
+implementer would have to guess; findings triaged (rejections recorded
+with reasons) and attributed to SOP/skill/spec/code — yielded EARS
+acceptance criteria, canonical gate order (401→422→404→428→409),
+interrogation checklist, blind-audit gate before coding, implementation
+feedback step. Iteration 4 (user feedback) added the dual-audience
+structure: every spec is Part A (plain-language approval summary with
+risk lights, scenarios, sign-off point) + Part B (EARS implementation
+spec), the skill follows Anthropic progressive disclosure (lean SKILL.md
++ references/), and every implementation must ship a README. Generality
+validated on a second domain: `sop/minio-bucket-disaster-recovery.md` →
 `specs/minio-bucket-disaster-recovery-api.spec.md` (spec only).
 
 ### Git Push 403 Issue (Resolved)
