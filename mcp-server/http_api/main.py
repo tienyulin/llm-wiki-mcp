@@ -20,8 +20,8 @@ from pydantic import BaseModel
 from http_api.rate_limit import TokenBucketRateLimiter
 from services.embeddings import query_embedder_from_env
 from services.wiki_service import WikiService
-from storage.minio_client import MinioReader
-from storage.pg_reader import pg_reader_from_env
+from repository.minio_client import MinioReader
+from repository.pg_reader import pg_reader_from_env
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

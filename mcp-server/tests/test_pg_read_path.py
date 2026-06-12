@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 import http_api.main as main
 from http_api.main import app, wiki_cache
-from storage.pg_reader import PGReader
+from repository.pg_reader import PGReader
 
 _FAKE_WIKI = {
     "apis": {
