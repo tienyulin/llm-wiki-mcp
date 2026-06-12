@@ -127,15 +127,25 @@ Design + measured numbers: `docs/architecture/vector-search.md`.
 **Key files:**
 - `wiki-processor/services/embeddings/` — OpenAI-compatible embedding client,
   `MOCK_EMBEDDINGS` mode, canonical `entry_to_text`
-- `wiki-processor/storage/pg_store.py` — read-write store; **owns the DDL**
+- `wiki-processor/repository/pg_store.py` — read-write store; **owns the DDL**
   (`ensure_schema`), best-effort post-CAS sync, `/admin/reindex` rebuild
-- `mcp-server/storage/pg_reader.py` — read-only queries + circuit breaker;
-  every read endpoint falls back to the cached-wiki path on PG failure
+- `mcp-server/repository/pg_reader.py` — read-only queries + circuit breaker
+- `mcp-server/services/query_service.py` — owns the PG-first/cached-wiki
+  fallback contract; every read endpoint goes through it
 - `mcp-server/services/embeddings.py` — query-side `mock_embed` copy,
   **golden-pinned** against the processor copy (change both together)
 - `db/` — extension bootstrap + topology notes; compose profile `pg` runs a
   single pgvector/pgvector:pg16 instance (client already supports multi-host
   failover DSNs, so an HA cluster later is a compose-only change)
+
+### Three-Layer Architecture (api / service / repository) ✅
+
+Both FastAPI services follow api → service → repository layering; see
+`docs/architecture/service-layering.md` for the layer map, dependency
+injection pattern (wiki-processor: `core/deps.py` lru_cache providers +
+`Depends`; mcp-server: `app.state` + per-request `QueryService`), and the
+test override patterns. Routers live in `api/routers/` (wiki-processor)
+and `http_api/routers/` (mcp-server); data access lives in `repository/`.
 
 ### Git Push 403 Issue (Resolved)
 

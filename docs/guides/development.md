@@ -197,32 +197,36 @@ prompt = (
 
 ### 當前的 API 端點
 
-文件：`mcp-server/http_api/main.py`
+路由檔案：`mcp-server/http_api/routers/`
 
 現有端點：
-- `GET /health` - 健康檢查
-- `GET /list_apis` - 列出所有 API
-- `GET /search_apis` - 搜尋 API
-- `GET /get_api_detail` - 獲取詳細信息
-- `GET /wiki_info` - Wiki 統計
+- `GET /health` - 健康檢查（`routers/health.py`）
+- `GET /list_apis` - 列出所有 API（`routers/query.py`）
+- `GET /search_apis` - 搜尋 API（`routers/query.py`）
+- `GET /semantic_search` - 語意搜尋（`routers/query.py`）
+- `GET /get_api_detail` - 獲取詳細信息（`routers/query.py`）
+- `GET /wiki_info` - Wiki 統計（`routers/query.py`）
+- `POST /cache/invalidate` - 快取失效（`routers/cache.py`）
 
 ### 添加新端點的步驟
 
-#### 1. 編輯 http_api/main.py
+#### 1. 在 http_api/routers/ 選擇或新增 router
 
 ```python
-# 在現有路由下添加新路由
-@app.get("/new_endpoint")
-async def new_endpoint(param: str = ""):
+# http_api/routers/query.py — router 只處理 HTTP 關注點，
+# 查詢與 fallback 邏輯放在 services/query_service.py
+@router.get("/new_endpoint")
+async def new_endpoint(param: str = "", svc: QueryService = Depends(get_query_service)):
     """新端點的說明"""
-    service = WikiService(wiki_reader)
-    result = service.new_method(param)  # 調用服務層
-    
+    result = await svc.new_method(param)  # 調用服務層
+
     if not result:
         raise HTTPException(status_code=404, detail="Not found")
-    
+
     return {"data": result}
 ```
+
+新 router 檔案需在 `http_api/main.py` 的 `create_app()` 中 `include_router`。
 
 #### 2. 在 services/wiki_service.py 中添加新方法
 
@@ -399,9 +403,9 @@ class WikiService:
         pass
 ```
 
-### Storage 層（數據持久化）
+### Repository 層（數據持久化）
 
-**storage/minio_client.py**
+**repository/minio_client.py**
 
 責任：
 - 抽象 Minio 操作
@@ -420,20 +424,21 @@ class MinioStorage:
 
 ### API 層（HTTP 接口）
 
-**api/routes.py** 和 **http_api/main.py**
+**wiki-processor:** `api/routers/{process,admin,system}.py`（`api/dependencies.py` 放共用 auth）
+**mcp-server:** `http_api/routers/{health,query,cache}.py`（`http_api/deps.py` 放 dependency providers）
 
 責任：
-- 接收 HTTP 請求
-- 調用 Services
+- 接收 HTTP 請求、參數驗證、HTTP 狀態碼
+- 透過 `Depends` 取得服務層物件並呼叫
 - 返回響應
 
 ```python
-@app.post("/process")
-async def process(request: ProcessRequest):
-    service = WikiService(...)
-    result = await service.process(...)
-    return result
+@router.post("/process", response_model=ProcessResponse)
+async def process(request: ProcessRequest, processor: WikiProcessor = Depends(get_processor)):
+    return await processor.process(...)
 ```
+
+詳細分層設計見 `docs/architecture/service-layering.md`。
 
 ---
 
@@ -495,16 +500,16 @@ flake8 wiki-processor/ mcp-server/
 
 ### 任務：修改 API 響應格式
 
-1. **編輯 http_api/main.py 中的路由**
-2. **修改 services/wiki_service.py 中的查詢邏輯**
+1. **編輯 http_api/routers/ 中的路由**
+2. **修改 services/query_service.py 或 services/wiki_service.py 中的查詢邏輯**
 3. **更新 models/schemas.py 中的數據模型**
 4. **添加測試到 tests/test_http_api.py**
 5. **運行 `pytest tests/ -v` 驗證**
 
 ### 任務：添加新的搜尋功能
 
-1. **在 wiki_service.py 中添加新方法**
-2. **在 http_api/main.py 中添加路由**
+1. **在 query_service.py / wiki_service.py 中添加新方法**
+2. **在 http_api/routers/query.py 中添加路由**
 3. **編寫測試**
 4. **文檔化新端點**
 
