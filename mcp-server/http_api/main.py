@@ -10,14 +10,13 @@ Supports application-level cache invalidation for multi-source wiki updates.
 
 import asyncio
 import logging
-import time
 from contextlib import asynccontextmanager
-from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 
+from core.cache import _WIKI_CACHE_KEY, WikiCache
 from http_api.rate_limit import TokenBucketRateLimiter
+from http_api.schemas import CacheInvalidateRequest, CacheInvalidateResponse
 from services.embeddings import query_embedder_from_env
 from services.wiki_service import WikiService
 from repository.minio_client import MinioReader
@@ -27,103 +26,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# In-Memory Cache Management
-# ============================================================================
-
-_WIKI_CACHE_KEY = "wiki"
-
-
-class WikiCache:
-    """Simple in-memory cache for wiki data with TTL support.
-
-    Keys are colon-separated segments (e.g. "wiki", "wiki:app-inventory") so
-    that per-app invalidation can match a segment exactly instead of doing
-    substring matching ("app-1" must not invalidate "app-10").
-    """
-
-    def __init__(self, ttl_seconds: float = 3600):
-        self.ttl = ttl_seconds
-        self._cache: dict = {}
-        self._timestamps: dict = {}
-
-    def get(self, key: str) -> Any:
-        """Get value if not expired."""
-        if key not in self._cache:
-            return None
-        if time.time() - self._timestamps[key] > self.ttl:
-            del self._cache[key]
-            del self._timestamps[key]
-            return None
-        return self._cache[key]
-
-    def set(self, key: str, value: Any):
-        """Set value with current timestamp."""
-        self._cache[key] = value
-        self._timestamps[key] = time.time()
-
-    def invalidate_by_source(self, source_app: Optional[str] = None):
-        """Invalidate cache entries related to a source app.
-
-        The shared "wiki" entry aggregates every app's data, so it is dropped
-        on any app-specific invalidation as well.
-        """
-        if source_app:
-            keys_to_delete = [
-                k for k in self._cache.keys()
-                if k == _WIKI_CACHE_KEY or source_app in str(k).split(":")
-            ]
-            for k in keys_to_delete:
-                del self._cache[k]
-                del self._timestamps[k]
-            logger.info(f"Invalidated {len(keys_to_delete)} cache entries for {source_app}")
-        else:
-            # Clear all
-            self._cache.clear()
-            self._timestamps.clear()
-            logger.info("Cleared entire cache")
-
-    def clear(self):
-        """Clear entire cache."""
-        self._cache.clear()
-        self._timestamps.clear()
-
-
 wiki_cache = WikiCache(ttl_seconds=3600)
-
-
-# ============================================================================
-# Request/Response Models
-# ============================================================================
-
-class ListApisRequest(BaseModel):
-    module: str = ""
-
-
-class ListApisResponse(BaseModel):
-    modules: dict[str, list[str]]
-
-
-class SearchApisRequest(BaseModel):
-    query: str
-
-
-class SearchApisResponse(BaseModel):
-    results: list[dict]
-
-
-class ApiDetailResponse(BaseModel):
-    detail: dict | None
-
-
-class CacheInvalidateRequest(BaseModel):
-    source_app: Optional[str] = None  # e.g., "app-inventory". If None, clears all.
-
-
-class CacheInvalidateResponse(BaseModel):
-    status: str
-    message: str
-    invalidated_entries: int
 
 
 # ============================================================================
