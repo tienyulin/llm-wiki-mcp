@@ -75,6 +75,7 @@ def test_ac_rpc_2_dry_run_returns_checks_no_state_change():
     body = resp.json()
     assert body["dry_run"] is True
     assert body["would_create"] == "X"
+    assert set(body["checks"]) == {"P3_fra_space", "no_duplicate_name"}
     assert body["checks"]["no_duplicate_name"]["ok"] is True
     assert len(client.get("/restore_points").json()["restore_points"]) == 1
 
@@ -202,6 +203,14 @@ def test_ac_ft_8_auto_enable_row_movement():
     )
     assert resp.status_code == 200
     assert _mock().get_table("SCOTT", "DEPT")["row_movement"] is True
+
+
+def test_ac_ft_8_no_side_effect_when_other_check_fails():
+    """Doomed request must not auto-enable row movement (iteration-2 DRIFT-003)."""
+    resp = client.post("/flashback/table", json=_table_req(
+        table_name="DEPT", enable_row_movement=True, target={"scn": 1_400_000}))
+    assert resp.status_code == 409  # P4 fails
+    assert _mock().get_table("SCOTT", "DEPT")["row_movement"] is False
 
 
 def test_ac_ft_9_no_idempotency_both_execute():

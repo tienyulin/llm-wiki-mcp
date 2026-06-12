@@ -8,6 +8,10 @@ from typing import Optional
 
 from models.schemas import (
     CONFIRM_TOKEN,
+    NEXT_STEP_DB_FINALIZE,
+    NOTE_FD_BIN_INDEX,
+    NOTE_FT_ROLLBACK,
+    WARNING_FZ_RMAN,
     FlashbackDatabaseRequest,
     FlashbackDropRequest,
     FlashbackTableRequest,
@@ -244,6 +248,11 @@ class FlashbackService:
             return {"dry_run": True, "prior_scn": s["current_scn"], "checks": checks}
 
         try:
+            # Auxiliary mutation (auto ENABLE ROW MOVEMENT) only after every
+            # OTHER precondition is known to pass — a doomed request must not
+            # leave side effects (iteration-2 audit DRIFT-003).
+            others = {k: v for k, v in checks.items() if k != "P6_row_movement"}
+            self._raise_first_failure(others, originals)
             if req.enable_row_movement and not checks["P6_row_movement"]["ok"]:
                 self.oracle.enable_row_movement(owner, table)
                 checks["P6_row_movement"] = {"ok": True}
@@ -276,7 +285,7 @@ class FlashbackService:
             "flashed_back": target_label,
             "prior_scn": prior_scn,
             "executed_scn": executed_scn,
-            "note": "資料驗證錯誤時可用 prior_scn 再 flashback 回來（SOP §4.1 步驟 2）",
+            "note": NOTE_FT_ROLLBACK,
         }
 
     def flashback_drop(self, req: FlashbackDropRequest, operator: str) -> dict:
@@ -316,7 +325,7 @@ class FlashbackService:
         return {
             "dry_run": False,
             **result,
-            "note": "索引仍為 BIN$ 系統名，需手動 rename（SOP §4.2 步驟 3）",
+            "note": NOTE_FD_BIN_INDEX,
         }
 
     def flashback_database(self, req: FlashbackDatabaseRequest, operator: str) -> dict:
@@ -391,8 +400,7 @@ class FlashbackService:
             "dry_run": False,
             "db_state": "FLASHBACKED",
             "flashed_back_to_scn": flashed_scn,
-            "next_step": "人工驗證資料後呼叫 POST /flashback/database/finalize"
-                         "（SOP §5 步驟 4）",
+            "next_step": NEXT_STEP_DB_FINALIZE,
         }
 
     def _check_db_open(self, s: dict):
@@ -424,5 +432,5 @@ class FlashbackService:
         return {
             "dry_run": False,
             "db_state": "OPEN",
-            "warning": "RESETLOGS 完成，舊備份基線失效，立即執行 RMAN 全備（SOP §5 步驟 5）",
+            "warning": WARNING_FZ_RMAN,
         }
