@@ -10,6 +10,7 @@ Welcome to the LLM Wiki MCP documentation. This directory contains all project d
 - **[Quick Start](../README.md#快速開始)** — Quick start in main README
 
 ### 🏗️ Architecture & Design
+- **[Service Layering](architecture/service-layering.md)** — Three-layer architecture (api/service/repository), dependency injection, test patterns
 - **[LLM Provider Abstraction](architecture/llm-provider-abstraction.md)** — Design and implementation of 7-provider abstraction layer
 - **[Concurrency Model](architecture/concurrency.md)** — Multi-replica safe two-phase CAS write pipeline
 - **[Vector Search](architecture/vector-search.md)** — PG+pgvector index design, measured evaluation, failure semantics (with diagrams)

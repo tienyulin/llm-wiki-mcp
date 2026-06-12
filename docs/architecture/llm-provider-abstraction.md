@@ -643,7 +643,7 @@ __all__ = [
 
 ## Phase 4: Integration with WikiProcessor
 
-### Step 4.1: Update `api/routes.py`
+### Step 4.1: Update the API layer (now `api/routers/` + `core/deps.py`)
 
 Replace MinimaxClient instantiation with factory:
 
@@ -935,7 +935,7 @@ pytest tests/integration/test_provider_integration.py -v
 | `services/llm/providers/minimax.py` | New | Provider |
 | `services/llm/providers/openai_compatible.py` | New | Provider |
 | `services/llm.py` | Delete | Old |
-| `api/routes.py` | Modify | Integration |
+| `api/routers/` | Modify | Integration |
 | `services/processor.py` | Modify | Type hints |
 | `docker-compose.yml` | Modify | Config |
 | `.env-example` | Modify | Config |
