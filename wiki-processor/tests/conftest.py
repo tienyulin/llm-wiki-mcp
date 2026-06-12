@@ -14,6 +14,6 @@ os.environ.setdefault("MOCK_EMBEDDINGS", "true")
 
 # Stub the Minio SDK class so MinioStorage() never opens a connection.
 # Tests that exercise storage behavior patch `api.routes.storage` directly.
-import storage.minio_client as _minio_client  # noqa: E402
+import repository.minio_client as _minio_client  # noqa: E402
 
 _minio_client.Minio = MagicMock()

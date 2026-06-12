@@ -8,8 +8,8 @@ from models.schemas import HealthResponse, ProcessRequest, ProcessResponse
 from services.embeddings import EmbeddingClient, load_embedding_env
 from services.llm import LLMProvider, LLMProviderFactory, load_from_env
 from services.processor import WikiProcessor
-from storage.minio_client import MinioStorage
-from storage.pg_store import pg_store_from_env
+from repository.minio_client import MinioStorage
+from repository.pg_store import pg_store_from_env
 
 logger = logging.getLogger(__name__)
 
