@@ -138,6 +138,7 @@ DROP RESTORE POINT before_upgrade_20260612;
 | ORA-19809 | FRA 空間不足（違反 P3） | 加大 `DB_RECOVERY_FILE_DEST_SIZE`、刪除過期備份/已用 GRP |
 | ORA-38780 | Restore point 不存在 | `v$restore_point` 確認名稱 |
 | ORA-38796 | 同名 restore point 已存在 | 改名或先 DROP 舊的 |
+| ORA-38312 | Flashback Drop 還原目標名稱與現有表衝突 | 使用 `RENAME TO` 還原為新名稱（見 4.2） |
 
 ## 8. 審計要求
 

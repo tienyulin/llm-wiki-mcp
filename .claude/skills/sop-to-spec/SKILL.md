@@ -83,6 +83,16 @@ SOP 審計欄位 → audit log schema 與寫入時機（所有非 read 操作）
 SOP 中不自動化的部分（需人工的步驟），明確列出原因
 ````
 
+### Step 3.5 — 共通 response 形狀（寫進 spec §3 開頭，端點不重複定義）
+
+```json
+// dry_run=true（reversible / irreversible 端點統一）：
+{"dry_run": true, "checks": {"<前置條件名>": {"ok": bool, "detail"?: str, "error_code"?: str}}}
+// dry_run=false 成功：{"dry_run": false, ...端點專屬欄位}
+```
+固定 confirm token 由 spec 指定字面值，實作中放單一常數（models 層）供
+service 與測試共用。
+
 ### Step 4 — 自檢（產出後逐項確認）
 
 - [ ] SOP 每個操作都出現在 spec（或列在 Out of Scope 並給原因）
@@ -90,6 +100,17 @@ SOP 中不自動化的部分（需人工的步驟），明確列出原因
 - [ ] 不可逆操作都有 confirm 防護
 - [ ] spec 不含「見 SOP」字樣 — 內容必須自足
 - [ ] mock 初始狀態足以跑完測試計畫的所有案例
+
+### Step 5 — 實作回饋（寫完 code 之後執行）
+
+實作過程中發現的缺漏要回流，不是只修 code：
+
+1. **SOP 缺錯誤碼**：實作遇到 SOP 故障排除表沒列的系統錯誤
+   （例：Flashback Drop 的名稱衝突 ORA-38312）→ 補進 SOP 錯誤表＋spec §6
+2. **SOP 前置條件沒有系統錯誤碼**（例：ARCHIVELOG 關閉沒有單一 ORA 碼）→
+   spec 中 `error_code: null`，但 detail 必須含前置條件編號（"P1 violated: ..."）
+3. **模板缺漏**：同一資訊在多個端點重複定義 → 抽成 spec 共通節，並更新本 skill
+4. 修改後重跑 Step 4 自檢
 
 ## 慣例
 
