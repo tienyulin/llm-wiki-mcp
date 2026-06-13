@@ -6,6 +6,7 @@ Welcome to the LLM Wiki MCP documentation. This directory contains all project d
 
 ### 🚀 Getting Started
 - **[End-to-End Example](guides/end-to-end-example.md)** — Follow two real markdown files through the entire pipeline: what each step produces, what MinIO/Postgres store, and what each query endpoint returns. **Start here if you're new.**
+- **[SOP → Wiki Pipeline](guides/sop-to-wiki-pipeline.md)** — The full chain: SOP → spec → API + README → simulated CI push → wiki → query, with real output.
 - **[Local Setup Guide](guides/local-setup.md)** — How to set up the project locally, start services, run tests
 - **[Quick Start](../README.md#快速開始)** — Quick start in main README
 
