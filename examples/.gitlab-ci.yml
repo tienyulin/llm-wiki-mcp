@@ -11,7 +11,7 @@ stages:
 # Main job: collect markdown and send to processor
 update-wiki:
   stage: deploy
-  image: python:3.11-slim
+  image: python:3.14.2-slim
 
   # Only run when markdown files change
   rules:

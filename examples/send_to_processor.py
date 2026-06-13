@@ -9,6 +9,7 @@ Usage:
 Environment variables:
     WIKI_PROCESSOR_URL - processor endpoint (default: http://wiki-processor:8001)
 """
+from __future__ import annotations  # allow "str | None" annotations on Python 3.9
 
 import json
 import glob

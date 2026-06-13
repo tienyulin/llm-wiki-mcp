@@ -4,7 +4,7 @@
 
 ## 系統要求
 
-- **Python 3.11+** （項目代碼使用 3.11 特性）
+- **Python 3.14+** （Docker 映像固定使用 3.14.2；本地工具腳本最低需 3.10）
 - **pip** （Python 套件管理器，通常與 Python 一起安裝）
 - **venv** （虛擬環境，通常內置於 Python）
 - **Git** （用於克隆倉庫）
@@ -371,11 +371,11 @@ netstat -an | grep 9000
 **A:** 檢查並升級 Python：
 
 ```bash
-python3 --version  # 需要 3.11+
+python3 --version  # 需要 3.14+（最低 3.10）
 
-# 如果沒有 Python 3.11：
-# - macOS: brew install python@3.11
-# - Linux: apt-get install python3.11
+# 如果沒有 Python 3.14：
+# - macOS: brew install python@3.14
+# - Linux: apt-get install python3.14
 # - Windows: 從 python.org 下載
 ```
 
