@@ -95,6 +95,11 @@ python tests/integration/test_docker_integration.py      # script, needs service
   Prints p50/p95 `processing_time_ms`; when the PG vector index is enabled it
   additionally asserts PG entry counts and semantic findability for 5 sampled
   apps (run once with and once without `PG_DSN` to quantify sync overhead)
+- `push_apps.py` — **dependency-free** (stdlib only) concurrent pusher + HTTP
+  verifier used by the 100+ app stress runbook (`push` / `verify` / `update-one`)
+- `STRESS_TEST_PLAN.md` — step-by-step **runbook** for a 100+ app stress test
+  (150 / 300 / PG-off runs) with a required results-report template; intended to
+  be handed to another operator/model to execute and record
 
 **Run stress tests:**
 ```bash
