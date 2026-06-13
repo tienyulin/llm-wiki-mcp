@@ -38,7 +38,8 @@ flowchart TB
     style EMB stroke-dasharray: 5 5
 ```
 
-> 虛線 = 可選的向量索引層（`PG_DSN` 未設定時不存在，系統行為不變）。
+> 向量索引層**預設啟用**（`docker compose up` 會一併啟動 `pg` 服務）。
+> 不需要時設 `PG_DSN=`（空）即停用，系統行為與無索引時相同。
 > MinIO 永遠是事實來源；PG 是衍生索引，掛掉自動 fallback、可隨時
 > `POST /admin/reindex` 重建。詳見 [向量檢索架構](docs/architecture/vector-search.md)。
 
@@ -80,7 +81,10 @@ MINIO_ROOT_PASSWORD=minioadmin
 ### 2. 啟動服務
 
 ```bash
-docker-compose up -d
+docker-compose up -d          # 含 Postgres+pgvector 索引（預設啟用）
+
+# 不需要向量索引時，停用 PG 層：
+# PG_DSN= docker-compose up -d minio wiki-processor mcp-server
 
 # 檢查服務狀態
 docker-compose ps
@@ -90,6 +94,7 @@ docker-compose ps
 - **Minio 控制台**：http://localhost:9001 (user: minioadmin, pass: minioadmin)
 - **wiki-processor API**：http://localhost:8001
 - **mcp-server API**：http://localhost:8002
+- **Postgres + pgvector**：localhost:5432 (db: wiki, user: wiki, pass: wikipass) — 向量索引，預設啟用
 
 ### 3. 測試服務
 
