@@ -48,7 +48,7 @@ stages:
 
 update-wiki:
   stage: deploy
-  image: python:3.11-slim
+  image: python:3.14.2-slim
   rules:
     - changes:
         - markdowns/**/*.md

@@ -4,7 +4,7 @@
 
 process-wiki:
   stage: deploy
-  image: python:3.11-slim
+  image: python:3.14.2-slim
   script:
     # 1. Install required tools
     - apt-get update && apt-get install -y curl jq

@@ -64,10 +64,10 @@ curl -s localhost:8002/health        # mcp-server     → {"status":"ok"}
 # 3. 模擬 flashback-api 的 GitLab CI push（拿它的 README 當 markdown POST /process）
 bash examples/simulate-app-push.sh
 
-# 4. 在 mcp-server 查到剛進去的 flashback 端點
+# 4. 在 mcp-server 查到剛進去的 flashback-api 端點
 curl -s localhost:8002/list_apis | python3 -m json.tool
 curl -s 'localhost:8002/search_apis?query=flashback' | python3 -m json.tool
-curl -s 'localhost:8002/get_api_detail?module=flashback&api_key=POST%20/flashback/database' | python3 -m json.tool
+curl -s 'localhost:8002/get_api_detail?module=flashback-api&api_key=POST%20/flashback/database' | python3 -m json.tool
 curl -s localhost:8001/status | python3 -m json.tool
 
 # 5. 清理
@@ -79,19 +79,21 @@ docker compose down -v
 第 3 步 `simulate-app-push.sh` 應印：
 
 ```
-✅ flashback-api/README.md -> flashback-api.md (~3500 bytes)
+✅ flashback-api/README.md -> flashback-api.md (~5200 bytes)
    source_app: flashback-api ...
 📥 Response: HTTP 200
    Status: success
 ✅ Wiki updated successfully!
 ```
 
-第 4 步 `GET /list_apis` 應含 module `flashback`、11 個端點：
+第 4 步 `GET /list_apis` 應含 module `flashback-api`、11 個端點
+（module 名取檔名 stem，mock 與真 LLM 一致；端點掃描略過 fenced code block，
+所以 README 範例註解裡的 `POST /process` 不會被誤收）：
 
 ```json
 {
   "modules": {
-    "flashback": [
+    "flashback-api": [
       "DELETE /restore_points/{name}",
       "GET /audit/log",
       "GET /flashback/status",
@@ -110,25 +112,29 @@ docker compose down -v
 
 `GET /search_apis?query=flashback` → `count: 11`、`mode: "wiki_scan"`（無 PG 時）。
 
-`GET /get_api_detail?module=flashback&api_key=POST /flashback/database`：
+`GET /get_api_detail?module=flashback-api&api_key=POST /flashback/database`
+（mock 模式 `description` 取 README 的 H1；真 LLM 會回較豐富的萃取文字）：
 
 ```json
 {
   "detail": {
     "method": "POST",
     "path": "/flashback/database",
-    "description": "flashback-api — Oracle Flashback Recovery API"
+    "description": "flashback-api — Oracle Flashback Recovery API",
+    "source_app": "flashback-api",
+    "source_version": "0.1.0"
   }
 }
 ```
 
-`GET /status`（wiki-processor）→ `wiki_size: 11`、`last_updated` 為剛才時間。
+`GET /status`（wiki-processor）→ `wiki_size: 1`（= 已收錄的 app/module 數，非端點數）、
+`last_updated` 為剛才時間。
 
 ## 成功標準
 
 - 兩個 `/health` 都回 200
 - `simulate-app-push.sh` 回 `status: success`
-- `list_apis` 出現 module `flashback` 且 11 個端點到齊
+- `list_apis` 出現 module `flashback-api` 且 11 個端點到齊
 - `get_api_detail` 取得 method/path/description
 
 任一不符 → 貼 `docker compose logs wiki-processor` 的尾段回報。
