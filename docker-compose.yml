@@ -43,8 +43,9 @@ services:
       MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8002}
       # /process auth — leave empty for unauthenticated dev mode
       PROCESSOR_API_KEY: ${PROCESSOR_API_KEY:-}
-      # Optional PG+pgvector index (empty = disabled; see profile "pg")
-      PG_DSN: ${PG_DSN:-}
+      # PG+pgvector index — on by default (points at the bundled `pg` service).
+      # Set PG_DSN= (empty) to disable; the app then falls back to MinIO scans.
+      PG_DSN: ${PG_DSN:-postgresql://wiki:wikipass@pg:5432/wiki}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
@@ -53,8 +54,8 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    # No depends_on for pg-*: the index layer is optional and best-effort;
-    # the service must boot and serve even when PG is absent or down.
+    # No depends_on for pg: the index layer is best-effort; the service must
+    # boot and serve even when PG is absent or down (graceful MinIO fallback).
     networks:
       - wiki-network
     command: python main.py
@@ -71,7 +72,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-wiki-data}
-      PG_DSN: ${PG_DSN:-}
+      # PG+pgvector index — on by default; set PG_DSN= (empty) to disable.
+      PG_DSN: ${PG_DSN:-postgresql://wiki:wikipass@pg:5432/wiki}
       PG_RETRY_SECONDS: ${PG_RETRY_SECONDS:-30}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
@@ -86,12 +88,13 @@ services:
     command: python http_api/main.py
 
   # ---------------------------------------------------------------------
-  # Optional PG+pgvector index (single instance). Enable with:
+  # PG+pgvector index (single instance) — part of the default stack, so
+  # `docker compose up` brings up Postgres with vector + pg_trgm and the
+  # services use it automatically (see PG_DSN defaults above).
   #
-  #   PG_DSN='postgresql://wiki:wikipass@pg:5432/wiki' \
-  #     docker compose --profile pg up -d
+  # To run WITHOUT the index:  PG_DSN= docker compose up minio wiki-processor mcp-server
+  # (empty PG_DSN disables the layer; the app falls back to MinIO scans.)
   #
-  # Plain `docker compose up` ignores this service entirely.
   # The app layer only requires "any PG with pgvector + pg_trgm", and
   # already supports multi-host failover DSNs — moving to an HA cluster
   # (repmgr/Patroni/managed PG) later touches only this file and PG_DSN.
@@ -99,7 +102,8 @@ services:
   pg:
     image: pgvector/pgvector:pg16
     container_name: wiki-pg
-    profiles: ["pg"]
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: ${PG_USER:-wiki}
       POSTGRES_PASSWORD: ${PG_PASSWORD:-wikipass}
