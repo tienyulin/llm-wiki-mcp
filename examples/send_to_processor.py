@@ -24,8 +24,15 @@ except ImportError:
     sys.exit(1)
 
 
-def collect_markdowns(pattern: str = "markdowns/**/*.md") -> dict[str, str]:
-    """Collect all markdown files matching pattern"""
+def collect_markdowns(pattern: str = "markdowns/**/*.md",
+                      key_override: str | None = None) -> dict[str, str]:
+    """Collect all markdown files matching pattern.
+
+    The dict key becomes the wiki module name (processor strips .md / _api /
+    -api), so we use the file's basename rather than its full path to avoid
+    module names containing slashes. key_override forces the key for a single
+    file (e.g. push README.md as "flashback-api.md" -> module "flashback").
+    """
     markdowns = {}
 
     files = sorted(glob.glob(pattern, recursive=True))
@@ -37,11 +44,19 @@ def collect_markdowns(pattern: str = "markdowns/**/*.md") -> dict[str, str]:
     for filepath in files:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
-                markdowns[filepath] = f.read()
-                print(f"  ✅ {filepath} ({len(markdowns[filepath])} bytes)")
+                content = f.read()
         except Exception as e:
             print(f"  ❌ Failed to read {filepath}: {e}")
             return {}
+
+        if key_override and len(files) == 1:
+            key = key_override
+        else:
+            key = os.path.basename(filepath)
+            if key in markdowns:  # basename collision — keep paths distinct
+                key = filepath
+        markdowns[key] = content
+        print(f"  ✅ {filepath} -> {key} ({len(content)} bytes)")
 
     return markdowns
 
@@ -65,6 +80,16 @@ def create_payload(markdowns: dict) -> dict:
             "pipeline_url": pipeline_url,
         }
     }
+
+    # Application identity → processor performs app-level incremental update
+    # (only this app's entries are replaced). Matches ci-templates and the
+    # root README contract; omitted → processor falls back to a full update.
+    source_app = os.getenv("SOURCE_APP") or os.getenv("CI_PROJECT_NAME")
+    source_version = os.getenv("SOURCE_VERSION") or os.getenv("CI_COMMIT_SHA")
+    if source_app:
+        payload["source_app"] = source_app
+    if source_version:
+        payload["source_version"] = source_version
 
     return payload
 
@@ -140,7 +165,7 @@ async def main():
 
     # Step 1: Collect markdowns
     print(f"\n🔍 Collecting markdown files from: {pattern}")
-    markdowns = collect_markdowns(pattern)
+    markdowns = collect_markdowns(pattern, key_override=os.getenv("MARKDOWN_KEY"))
 
     if not markdowns:
         print("❌ No markdown files collected, aborting")

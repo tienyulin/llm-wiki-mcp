@@ -177,6 +177,15 @@ spec), the skill follows Anthropic progressive disclosure (lean SKILL.md
 validated on a second domain: `sop/minio-bucket-disaster-recovery.md` →
 `specs/minio-bucket-disaster-recovery-api.spec.md` (spec only).
 
+The full chain closes back into the wiki: an app's README *is* the
+markdown fed to wiki-processor (it has an H1 + `METHOD /path` lines that
+MOCK_LLM extraction parses), so no per-app generator is needed.
+`examples/simulate-app-push.sh` reproduces the GitLab-CI push step
+(`examples/send_to_processor.py` now sends `source_app`/`source_version`
+for app-level updates); end-to-end walkthrough + real output in
+`docs/guides/sop-to-wiki-pipeline.md`, guarded by
+`tests/integration/test_readme_to_wiki.py`.
+
 ### Git Push 403 Issue (Resolved)
 
 If `git push` fails with HTTP 403, use GitHub MCP API instead:
