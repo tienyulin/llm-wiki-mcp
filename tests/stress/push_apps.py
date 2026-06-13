@@ -23,7 +23,7 @@ check always prints its result so you can copy the full output into the report.
 """
 import argparse
 import json
-import statistics
+import random
 import sys
 import time
 import urllib.error
@@ -103,12 +103,19 @@ def cmd_push(args) -> int:
             "source_app": app,
             "source_version": "v1.0.0",
         }
+        attempts = 0
         t0 = time.time()
-        status, body = _post_json(url, payload)
+        while True:
+            attempts += 1
+            status, body = _post_json(url, payload)
+            ok = status == 200 and isinstance(body, dict) and body.get("status") == "success"
+            if ok or attempts > args.retries:
+                break
+            # exponential backoff + jitter — helps with real-LLM 429 rate limits
+            time.sleep(min(8.0, 0.5 * (2 ** (attempts - 1))) + random.uniform(0, 0.5))
         wall_ms = int((time.time() - t0) * 1000)
-        ok = status == 200 and isinstance(body, dict) and body.get("status") == "success"
         server_ms = body.get("processing_time_ms", 0) if isinstance(body, dict) else 0
-        return app, ok, status, server_ms, wall_ms, body
+        return app, ok, status, server_ms, wall_ms, attempts, body
 
     print(f"==> push: {args.n} apps -> {url} (workers={args.workers})")
     start = time.time()
@@ -123,9 +130,12 @@ def cmd_push(args) -> int:
     failed = [r for r in results if not r[1]]
     server_ms = [r[3] for r in ok_results]
     wall_ms = [r[4] for r in ok_results]
+    retried = [r for r in results if r[5] > 1]
 
     print(f"\nsucceeded: {len(ok_results)}/{args.n}")
     print(f"elapsed:   {elapsed:.2f}s  ({args.n / elapsed:.1f} apps/sec)")
+    if args.retries:
+        print(f"retried:   {len(retried)} apps needed >1 attempt (max attempts={max((r[5] for r in results), default=0)})")
     print(
         "server processing_time_ms: "
         f"p50={_pct(server_ms,50)} p95={_pct(server_ms,95)} max={max(server_ms, default=0)}"
@@ -136,7 +146,7 @@ def cmd_push(args) -> int:
     )
     if failed:
         print(f"\n!! {len(failed)} FAILED submissions (showing up to 10):")
-        for app, _ok, status, _s, _w, body in failed[:10]:
+        for app, _ok, status, _s, _w, _att, body in failed[:10]:
             snippet = body if isinstance(body, str) else json.dumps(body)
             print(f"   {app}: HTTP {status} -> {str(snippet)[:200]}")
     print("\nPUSH RESULT:", "PASS" if not failed else "FAIL")
@@ -169,7 +179,71 @@ def cmd_update_one(args) -> int:
 # --------------------------------------------------------------------------
 # verify
 # --------------------------------------------------------------------------
+def _verify_real(args) -> int:
+    """Lenient verification for REAL LLM extraction (non-deterministic output).
+
+    Module keys and endpoint formatting vary per app under a real LLM, so we
+    check app *presence* by source_app (findability via search) rather than
+    exact endpoints/module names. The authoritative lost-update count is the
+    psql `count(distinct source_app)` query in STRESS_TEST_PLAN.md.
+    """
+    mcp = args.mcp.rstrip("/")
+    proc = args.base.rstrip("/")
+    n = args.n
+
+    status, wi = _get_json(f"{mcp}/wiki_info")
+    if status == 200 and isinstance(wi, dict):
+        print(
+            f"[info] wiki_info: modules={wi.get('modules')} "
+            f"total_endpoints={wi.get('total_endpoints')} vector_index={wi.get('vector_index')}"
+        )
+        print("       (real LLM may extract != N endpoints and name modules freely — informational)")
+    status, st = _get_json(f"{proc}/status")
+    if status == 200 and isinstance(st, dict):
+        print(f"[info] status.wiki_size={st.get('wiki_size')}")
+
+    # Findability per app: search by slug, expect >=1 result stamped source_app==app.
+    findable, missing = 0, []
+    for i in range(n):
+        a = app_name(i)
+        status, s = _get_json(f"{mcp}/search_apis?{urllib.parse.urlencode({'query': a})}")
+        hit = (
+            status == 200
+            and isinstance(s, dict)
+            and any(r.get("source_app") == a for r in s.get("results", []))
+        )
+        if hit:
+            findable += 1
+        else:
+            missing.append(a)
+    print(
+        f"[{'PASS' if findable == n else 'FAIL'}] findable by source_app: {findable}/{n}"
+        + ("" if findable == n else f" — missing e.g. {missing[:10]}")
+    )
+
+    print("\n[info] sample extraction (eyeball real LLM output):")
+    for a in (app_name(0), app_name(n // 2), app_name(n - 1)):
+        _s, s = _get_json(f"{mcp}/search_apis?{urllib.parse.urlencode({'query': a})}")
+        print(f"  {a}: {json.dumps(s)[:300]}")
+
+    a = app_name(n // 2)
+    _s, sm = _get_json(f"{mcp}/search_apis?{urllib.parse.urlencode({'query': a})}")
+    _s, sem = _get_json(
+        f"{mcp}/semantic_search?{urllib.parse.urlencode({'query': a + ' items', 'top_k': 3})}"
+    )
+    print(f"[info] search_apis mode={sm.get('mode') if isinstance(sm, dict) else sm}")
+    if isinstance(sem, dict):
+        print(f"[info] semantic_search mode={sem.get('mode')} top={[r.get('api_key') for r in sem.get('results', [])]}")
+
+    ok = findable == n
+    print("\nVERIFY RESULT (real mode):", "PASS" if ok else "FAIL")
+    print("NOTE: run the psql count(distinct source_app) check in STRESS_TEST_PLAN.md for the authoritative lost-update count.")
+    return 0 if ok else 1
+
+
 def cmd_verify(args) -> int:
+    if getattr(args, "mode", "mock") == "real":
+        return _verify_real(args)
     mcp = args.mcp.rstrip("/")
     proc = args.base.rstrip("/")
     n = args.n
@@ -274,7 +348,8 @@ def main() -> int:
     pp = sub.add_parser("push", help="concurrently push N app READMEs")
     pp.add_argument("--n", type=int, default=150)
     pp.add_argument("--base", default=DEFAULT_PROCESSOR, help="wiki-processor base URL")
-    pp.add_argument("--workers", type=int, default=50)
+    pp.add_argument("--workers", type=int, default=50, help="concurrent submits (use 5 for real LLM)")
+    pp.add_argument("--retries", type=int, default=0, help="retry a failed submit N times w/ backoff (use 3 for real-LLM 429s)")
     pp.set_defaults(func=cmd_push)
 
     pv = sub.add_parser("verify", help="verify mcp-server results for N apps")
@@ -282,6 +357,8 @@ def main() -> int:
     pv.add_argument("--mcp", default=DEFAULT_MCP, help="mcp-server base URL")
     pv.add_argument("--base", default=DEFAULT_PROCESSOR, help="wiki-processor base URL")
     pv.add_argument("--pg", choices=["on", "off"], default="on", help="is the PG index enabled?")
+    pv.add_argument("--mode", choices=["mock", "real"], default="mock",
+                    help="mock = strict exact-match checks; real = lenient (LLM output varies)")
     pv.set_defaults(func=cmd_verify)
 
     pu = sub.add_parser("update-one", help="re-push one app with a new endpoint (isolation test)")

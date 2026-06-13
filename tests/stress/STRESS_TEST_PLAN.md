@@ -184,10 +184,103 @@ push latency (p50/p95) against RUN A to show the PG-sync overhead. Record.
 
 ---
 
+## 8b. RUN R — REAL test (real MiniMax LLM + real embeddings)  ⚠️ costs money
+
+Runs A–C used `MOCK_LLM=true` / `MOCK_EMBEDDINGS=true` (no real API calls). This
+run makes extraction **real**: real MiniMax LLM + real OpenAI embeddings, against
+the same real MinIO/PG/HTTP services. Scale is smaller (**N=50, concurrency 5**)
+because each `/process` is a real ~20–30s MiniMax call that **costs money** and
+**rate-limits (HTTP 429)** at high concurrency.
+
+### R.1 Secrets — create a gitignored `.env` (NEVER commit; rotate keys after)
+First confirm `.env` is ignored, then create it:
+```bash
+git check-ignore .env && echo ".env is gitignored ✓"   # must print this
+cat > .env <<'EOF'
+MOCK_LLM=false
+LLM_PROVIDER=minimax
+LLM_API_KEY=__PUT_MINIMAX_KEY_HERE__
+LLM_MODEL=MiniMax-M3
+MOCK_EMBEDDINGS=false
+EMBEDDING_BASE_URL=https://api.openai.com
+EMBEDDING_API_KEY=__PUT_OPENAI_KEY_HERE__
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIM=1536
+EOF
+# edit .env and paste the real keys
+```
+**Security:** keys live ONLY in `.env`. Never paste a key into the report, a
+commit, or a log. If `git check-ignore .env` prints nothing, STOP — do not write
+keys to a tracked file.
+
+### R.2 Bring up with real config
+```bash
+docker compose down -v && docker compose up -d --build
+# wait, then:
+curl -s localhost:8001/health ; echo
+```
+**Expected:** health shows `"llm_provider":"minimax"`, `"minimax_accessible":true`,
+`"vector_index_connected":true`. If `"minimax_accessible":false` → the key is
+wrong/empty: record it and STOP the real run (fix the key first).
+
+### R.3 Run R — push 50 real apps, throttled, with retries
+```bash
+python3 tests/stress/push_apps.py push   --n 50 --workers 5 --retries 3 | tee /tmp/runR_push.txt
+python3 tests/stress/push_apps.py verify  --n 50 --mode real --pg on    | tee /tmp/runR_verify.txt
+```
+- Expect this to take **~5–15 min**. Higher latency than mock is normal.
+- `--mode real` is **lenient**: real LLM names modules/endpoints freely, so it
+  checks each app is **findable by `source_app`** instead of exact-matching the
+  endpoint. Record the full output.
+- If some submits FAILED with a rate-limit message, that's expected at the edge —
+  record how many, and whether `--retries` recovered them.
+
+### R.4 Authoritative correctness (psql — deterministic despite LLM variance)
+```bash
+# No lost app: distinct source_app must equal 50
+docker compose exec -T pg psql -U wiki -d wiki -tA -c \
+  "SELECT count(DISTINCT source_app) FROM api_entries WHERE source_app LIKE 'stress-app-%';"
+docker compose exec -T pg psql -U wiki -d wiki -tA -c \
+  "SELECT count(*) FROM app_sync WHERE source_app LIKE 'stress-app-%';"
+# Per-app endpoint count (real LLM may extract 1+; record the spread)
+docker compose exec -T pg psql -U wiki -d wiki -c \
+  "SELECT source_app, count(*) AS endpoints FROM api_entries WHERE source_app LIKE 'stress-app-%' GROUP BY source_app ORDER BY 1 LIMIT 12;"
+```
+**Expected:** both counts == **50** (no lost updates). Record.
+
+### R.5 Extraction-quality eyeball (the whole point of going real)
+```bash
+for a in stress-app-000 stress-app-025 stress-app-049; do
+  echo "== $a =="
+  docker compose exec -T pg psql -U wiki -d wiki -c \
+    "SELECT module, api_key, left(description,80) FROM api_entries WHERE source_app='$a';"
+done
+# real semantic search (real OpenAI vectors now):
+curl -s 'localhost:8002/semantic_search?query=list%20items%20for%20stress-app-025&top_k=3' | python3 -m json.tool
+```
+Record how the real LLM named the module + endpoint vs the input README
+(`# stress-app-NNN API` / `GET /stress-app-NNN/items`), and whether semantic
+search returns `"mode":"semantic"` with sensible hits.
+
+### R.6 Problem scan (same as Section 6) + record
+```bash
+docker compose ps -a
+docker compose logs wiki-processor 2>&1 | grep -iE "error|traceback|rate limit|429|conflict|retry" | tail -40
+```
+
+**RUN R pass criteria:** all 50 submits succeed (or every failure explained, e.g.
+documented 429s after retries); `count(DISTINCT source_app) == 50` (no lost app);
+every app has ≥1 extracted endpoint; `semantic_search` returns `"mode":"semantic"`
+with sensible hits; no container crash.
+
+---
+
 ## 9. Teardown
 
 ```bash
 docker compose down -v
+# remove the real-key file when done
+rm -f .env
 ```
 
 ---
@@ -203,22 +296,31 @@ Fill in **every** section. Paste real command output, not summaries.
 - docker / compose / python3 versions, OS, CPU, RAM  (from Section 1)
 
 ## Process log (what I actually did)
-- For each Section (2–8): the commands I ran and their FULL output.
-  (Paste /tmp/runA_push.txt, runA_verify.txt, runB_*, runC_*, etc.)
+- For each Section (2–8b): the commands I ran and their FULL output.
+  (Paste /tmp/runA_push.txt, runA_verify.txt, runB_*, runC_*, runR_*, etc.)
 
 ## Problems found
 - For each problem: which step, the EXACT error text / traceback, and what I
   observed. "None" if truly none. Include the known old-script bug if you hit it.
+  For Run R: note any rate-limit (429) failures and whether retries recovered them.
 
 ## Results table
-| Run | N | PG | submits ok | apps/sec | p50 ms | p95 ms | max ms | lost updates | modules | endpoints | PG entries | verdict |
-|-----|---|----|-----------|----------|--------|--------|--------|--------------|---------|-----------|------------|---------|
-| A   |150| on |           |          |        |        |        |              |         |           |            |         |
-| B   |300| on |           |          |        |        |        |              |         |           |            |         |
-| C   |150| off|           |          |        |        |        |              |         | N/A (off) |            |         |
+| Run | N | LLM | PG | submits ok | apps/sec | p50 ms | p95 ms | max ms | lost updates | modules | endpoints | PG entries | verdict |
+|-----|---|-----|----|-----------|----------|--------|--------|--------|--------------|---------|-----------|------------|---------|
+| A   |150| mock| on |           |          |        |        |        |              |         |           |            |         |
+| B   |300| mock| on |           |          |        |        |        |              |         |           |            |         |
+| C   |150| mock| off|           |          |        |        |        |              |         | N/A (off) |            |         |
+| R   | 50| REAL| on |           |          |        |        |        | (distinct source_app) |  |           |            |         |
 
 ## Isolation test result
 - app-005 after v2 update; totals before/after; neighbor app state. PASS/FAIL.
+
+## Real run (R) — extraction quality
+- `count(DISTINCT source_app)` (must be 50) and per-app endpoint spread.
+- For 3 sampled apps: how the real LLM named the module + endpoint vs the input
+  README. Did it stay consistent across apps, or vary? Any apps it extracted
+  0 endpoints for? Real-vector semantic_search sample.
+- Rate-limit / cost notes: how many 429s, retries, total wall time.
 
 ## Log excerpts
 - Relevant lines from `docker compose logs` (errors/retries) and `docker stats`.

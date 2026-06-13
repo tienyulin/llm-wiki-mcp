@@ -98,8 +98,9 @@ python tests/integration/test_docker_integration.py      # script, needs service
 - `push_apps.py` — **dependency-free** (stdlib only) concurrent pusher + HTTP
   verifier used by the 100+ app stress runbook (`push` / `verify` / `update-one`)
 - `STRESS_TEST_PLAN.md` — step-by-step **runbook** for a 100+ app stress test
-  (150 / 300 / PG-off runs) with a required results-report template; intended to
-  be handed to another operator/model to execute and record
+  (150 / 300 / PG-off mock runs **plus a REAL run** with real MiniMax LLM +
+  real OpenAI embeddings, N=50 throttled) with a required results-report
+  template; intended to be handed to another operator/model to execute and record
 
 **Run stress tests:**
 ```bash
