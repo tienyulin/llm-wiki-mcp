@@ -202,7 +202,9 @@ def _verify_real(args) -> int:
     if status == 200 and isinstance(st, dict):
         print(f"[info] status.wiki_size={st.get('wiki_size')}")
 
-    # Findability per app: search by slug, expect >=1 result stamped source_app==app.
+    # Findability per app: search by slug; search_apis results expose
+    # module/api_key (not source_app), and the slug appears in both under a
+    # well-behaved extraction, so match on those.
     findable, missing = 0, []
     for i in range(n):
         a = app_name(i)
@@ -210,14 +212,17 @@ def _verify_real(args) -> int:
         hit = (
             status == 200
             and isinstance(s, dict)
-            and any(r.get("source_app") == a for r in s.get("results", []))
+            and any(
+                r.get("module") == a or a in (r.get("api_key") or "")
+                for r in s.get("results", [])
+            )
         )
         if hit:
             findable += 1
         else:
             missing.append(a)
     print(
-        f"[{'PASS' if findable == n else 'FAIL'}] findable by source_app: {findable}/{n}"
+        f"[{'PASS' if findable == n else 'FAIL'}] findable: {findable}/{n}"
         + ("" if findable == n else f" — missing e.g. {missing[:10]}")
     )
 
