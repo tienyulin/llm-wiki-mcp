@@ -1,0 +1,9 @@
+[submodule "wiki-processor"]
+	path = wiki-processor
+	url = https://github.com/tienyulin/llm-wiki-processor
+[submodule "mcp-server"]
+	path = mcp-server
+	url = https://github.com/tienyulin/llm-mcp-server
+[submodule "flashback-api"]
+	path = flashback-api
+	url = https://github.com/tienyulin/flashback-api
