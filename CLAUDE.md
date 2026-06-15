@@ -1,5 +1,25 @@
 # LLM Wiki MCP — Claude Code Guidelines
 
+## Repository structure (submodules)
+
+This is the **platform** repo. The three services are **git submodules** with
+their own repos — edit code in the submodule, commit/PR there, then bump the
+pointer here:
+
+| Path (submodule) | Repo |
+|------------------|------|
+| `wiki-processor/` | [tienyulin/llm-wiki-processor](https://github.com/tienyulin/llm-wiki-processor) |
+| `mcp-server/`     | [tienyulin/llm-mcp-server](https://github.com/tienyulin/llm-mcp-server) |
+| `flashback-api/`  | [tienyulin/flashback-api](https://github.com/tienyulin/flashback-api) |
+
+- Clone with `git clone --recurse-submodules` (or `git submodule update --init`).
+- A service's own README, `.env.example`, `docker-compose.yml`, `docs/`, and tests
+  live in its repo. The platform keeps the full-stack `docker-compose.yml`,
+  `ci-templates/`, `sop/`, `specs/`, `examples/`, `tests/`, `db/init/`, and
+  cross-cutting `docs/`.
+- After landing changes in a service repo, update its pointer here:
+  `git submodule update --remote <path> && git commit`.
+
 ## Git Workflow (Critical)
 
 **ALWAYS follow this workflow:**
@@ -64,7 +84,7 @@ mcp__github__merge_pull_request --pullNumber 27
 
 | Change Type | What to Update | File Location |
 |------------|-----------------|-------------------|
-| **New LLM provider** | Architecture design, setup instructions | `docs/architecture/llm-provider-abstraction.md`, `docs/guides/local-setup.md` |
+| **New LLM provider** | Architecture design, setup instructions | `wiki-processor/docs/llm-provider-abstraction.md` (submodule), `docs/guides/local-setup.md` |
 | **API endpoint change** | Endpoint reference, schema | `docs/api/schema.md` |
 | **Setup/installation** | Local setup guide | `docs/guides/local-setup.md` |
 | **Development process** | Development guide | `docs/guides/development.md` |
