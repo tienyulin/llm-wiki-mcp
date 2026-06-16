@@ -33,25 +33,41 @@ Each repo has its own README, `.env.example`, `docker-compose.yml`, `docs/`, and
 ```
 The index layer is optional (`PG_DSN=` disables it → MinIO scan fallback).
 
-## Full-stack quickstart
+## Two ways to run
 
 ```bash
 git clone --recurse-submodules https://github.com/tienyulin/llm-wiki-mcp
 cd llm-wiki-mcp
+```
+(Already cloned without submodules? `git submodule update --init`.)
+
+### Mode A — one-shot full stack (self-contained)
+Everything in one compose project, with its own bundled minio + pg:
+```bash
 cp .env-example .env            # keep MOCK_LLM=true for a no-key run
 docker compose up -d --build    # minio + pg + wiki-processor + mcp-server
-curl localhost:8001/health
-curl localhost:8002/health
+curl localhost:8001/health && curl localhost:8002/health
 ```
-Already cloned without submodules? `git submodule update --init`.
-Update services to their latest: `git submodule update --remote`.
 
-Run one service alone instead: `cd wiki-processor && docker compose up -d --build`
-(see that repo's README).
+### Mode B — independent services on shared infra (dev)
+One **shared** minio + pg ([`infra/`](infra) = the `llm-wiki-infra` submodule),
+then each service from its **own** compose attached to it. Run/restart/develop
+each service independently; they share data and don't clash on infra ports:
+```bash
+scripts/dev-up.sh        # infra + wiki-processor + mcp-server + flashback-api
+scripts/dev-down.sh      # stop (add -v to wipe shared data)
+```
+Or by hand: `(cd infra && docker compose up -d)` then `cd <service> && docker compose up -d`.
+
+> Run **one mode at a time** — both bind host ports 9000/9001/5432.
+
+Update services to their latest: `git submodule update --remote`.
 
 ## Platform contents
 
-- `docker-compose.yml` — full-stack dev (builds from the submodule dirs)
+- `docker-compose.yml` — Mode A full stack (self-contained, bundled infra)
+- `infra/` — submodule [llm-wiki-infra](https://github.com/tienyulin/llm-wiki-infra): shared minio + pg (Mode B)
+- `scripts/dev-up.sh` · `scripts/dev-down.sh` — Mode B orchestration
 - `ci-templates/` — the GitLab CI template apps include to generate + push docs
 - `sop/`, `specs/` — example SOP → spec → API source material
 - `examples/` — `simulate-app-push.sh`, `send_to_processor.py`
