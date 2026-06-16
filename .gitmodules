@@ -7,3 +7,6 @@
 [submodule "flashback-api"]
 	path = flashback-api
 	url = https://github.com/tienyulin/flashback-api
+[submodule "infra"]
+	path = infra
+	url = https://github.com/tienyulin/llm-wiki-infra
