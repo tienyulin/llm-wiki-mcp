@@ -33,25 +33,56 @@ Each repo has its own README, `.env.example`, `docker-compose.yml`, `docs/`, and
 ```
 The index layer is optional (`PG_DSN=` disables it → MinIO scan fallback).
 
-## Full-stack quickstart
+## Run modes
+
+**Two modes — run only one at a time** (both bind ports 9000/9001/5432).
+
+### Mode A: full-stack (one compose, all-in-one)
 
 ```bash
 git clone --recurse-submodules https://github.com/tienyulin/llm-wiki-mcp
 cd llm-wiki-mcp
 cp .env-example .env            # keep MOCK_LLM=true for a no-key run
-docker compose up -d --build    # minio + pg + wiki-processor + mcp-server
+docker compose up -d --build    # owns its own minio + pg + all services
 curl localhost:8001/health
 curl localhost:8002/health
 ```
 Already cloned without submodules? `git submodule update --init`.
 Update services to their latest: `git submodule update --remote`.
 
-Run one service alone instead: `cd wiki-processor && docker compose up -d --build`
-(see that repo's README).
+### Mode B: independent services (shared infra)
+
+Each service runs from its own repo, all connected to a single shared
+MinIO + Postgres on `llm-wiki-net`. Data written by wiki-processor is
+immediately visible to mcp-server.
+
+```bash
+# Clone submodules if not done yet
+git submodule update --init
+
+# Start everything
+./scripts/dev-up.sh
+
+# Tear down
+./scripts/dev-down.sh
+```
+
+Or bring up services manually:
+```bash
+# 1. Shared infra first (owns the data volumes + network)
+(cd infra && docker compose up -d)
+
+# 2. Then any/all services (in any order, any subset)
+(cd wiki-processor && docker compose up -d --build)
+(cd mcp-server && docker compose up -d --build)
+(cd flashback-api && docker compose up -d --build)
+```
 
 ## Platform contents
 
-- `docker-compose.yml` — full-stack dev (builds from the submodule dirs)
+- `docker-compose.yml` — full-stack dev (builds from the submodule dirs, Mode A)
+- `infra/` — shared MinIO + Postgres submodule ([tienyulin/llm-wiki-infra](https://github.com/tienyulin/llm-wiki-infra)), used by Mode B
+- `scripts/dev-up.sh` / `scripts/dev-down.sh` — start/stop all services in Mode B
 - `ci-templates/` — the GitLab CI template apps include to generate + push docs
 - `sop/`, `specs/` — example SOP → spec → API source material
 - `examples/` — `simulate-app-push.sh`, `send_to_processor.py`
