@@ -161,6 +161,8 @@ Wiki 系統的核心數據存儲在 **Minio** 中的 `wiki.json` 文件。該文
 | 字段 | 類型 | 說明 |
 |------|------|------|
 | `apis` | object | 按模組分組的所有 API 端點 |
+| `concepts` | object | 跨應用概念合成（由 `/admin/rebuild-concepts` 產生）。`{概念名: {description, related, apps}}` |
+| `overviews` | object | 每個應用的總覽（每次 ingest 更新）。`{app: {text, updated_at}}` |
 | `metadata` | object | Wiki 的元數據 |
 
 ### APIs 結構
@@ -183,6 +185,9 @@ apis: {
 | `method` | string | ✅ | HTTP 方法：GET, POST, PUT, DELETE, PATCH |
 | `path` | string | ✅ | API 路徑（如 /users/{id}） |
 | `description` | string | ✅ | API 功能描述 |
+| `sources` | array | ✅ | 此條目萃取自哪些 markdown 檔（溯源） |
+| `source_app` | string | ✅ | 來源應用（由處理器標記，非 LLM 輸出） |
+| `source_version` | string | ✅ | 來源版本 / commit |
 | `parameters` | array | ❌ | 查詢參數或路由參數 |
 | `request_body` | object | ❌ | 請求體的 JSON Schema |
 | `response` | object | ❌ | 回應的 JSON Schema |
@@ -540,6 +545,27 @@ v1 的混合形態（wiki 中夾帶 `"file.md": "<markdown>"` 條目）已移除
 
 PG 停用或不可達時為 `{"available": false}`。`last_sync.synced_at` 對照
 `metadata.updated_at` 可偵測 wiki↔PG 漂移。
+
+---
+
+## 概念、總覽、技能、知識圖譜端點（2026-06-18）
+
+採用自 nashsu/llm_wiki 與 VectifyAI/OpenKB。萃取改為兩段式（analyze → generate），
+每個 API 條目帶 `sources` 溯源。
+
+**wiki-processor（admin，受 `X-API-Key` 保護）：**
+- `POST /admin/recompile` — 以已存的 per-app snapshot 重新萃取（不需重新 ingest），
+  用於萃取 / prompt 變更後刷新。回 `{recompiled_apps, count}`。
+- `POST /admin/rebuild-concepts` — 對整個 wiki 做跨應用概念合成，寫入 `wiki.concepts`。
+  整庫掃描（如 reindex），非每次 ingest 觸發。回 `{concepts: N}`。
+
+**mcp-server（讀取，皆讀 cached wiki.json）：**
+- `GET /list_concepts` → `{concepts: {名稱: {description, apps, related_count}}}`
+- `GET /get_concept?name=` → `{concept: {description, related, apps}}` 或 404
+- `GET /get_overview?app=` → `{overview: {text, updated_at}}` 或 404
+- `GET /skill?name=` → 將 wiki 打包為 Anthropic Skill 資料夾
+  `{files: {"<name>/SKILL.md": ..., "<name>/references/concepts.md": ...}}`
+- `GET /graph` → `{nodes, edges}`；edge kind：`shared_source`（4.0）、`concept`（3.0）
 
 **`POST /admin/reindex`（wiki-processor，新端點，受 `X-API-Key` 保護）：**
 
