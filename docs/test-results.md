@@ -1,5 +1,52 @@
 # LLM Wiki MCP - 測試報告
 
+## 2026-06-20 — 真實 LLM 規模壓測 + P1–P4 修復
+
+**環境**：真實 LLM（Minimax **M3**）+ 本地 embedding（fastembed **bge-small**，384 維）
++ Postgres/pgvector，全 Docker。100 app（每個 10 endpoint）+ 200 份知識文件併發推進來。
+
+> 名詞：**hybrid search** = 關鍵字 + 語意（向量）搜尋合併；**p50/p95** = 延遲中位數 / 第 95 百分位；
+> **q/s** = 每秒查詢數；**429 / rate limit** = LLM 供應商「請求太多」限流。
+
+### 讀取（查詢）— 隨規模穩定
+- 單次查詢 p50 **4–10ms**，p95 ≤14ms；併發 32 並行 **260 q/s**（mock embedding）。
+- reindex 1000 endpoint **1.07s**；rebuild-concepts **94ms**。
+
+### 真實 LLM 抓到的四個問題 + 修復
+
+| # | 問題 | 修法 | 修復前 → 後（實測） |
+|---|------|------|----------------------|
+| **P1** | 併發推送撞 LLM rate limit（429），無重試 | 指數退避重試 + 併發上限（信號量） | 失敗率 **65% → 0%** |
+| **P2** | `rebuild-concepts` 規模下 HTTP 500 逾時（整目錄塞一個 prompt） | 改用確定性分群，不呼叫 LLM | **500 逾時 → 0.20s** |
+| **P4** | 每次查詢同步算 query embedding，併發卡單一 embedder | query 向量加 LRU 快取 | 重複查詢 **57 → 221 q/s** |
+| **P3** | 寫入重寫整個 `wiki.json`（O(N²)） | **每-app 物件** `apps/<app>.json` | 寫入延遲隨規模 **+33% → 持平**（~35ms/push @400 app） |
+
+P3 細節（400 app 實測，每次推送延遲持平）：
+
+| 已存 app 數 | 每次推送平均 |
+|---|---|
+| 0–100 | 36ms |
+| 100–200 | 34ms |
+| 200–300 | 36ms |
+| 300–400 | 35ms |
+
+成長倍率 1.33×（修前）→ **0.92×（持平，修後）**；彙總 `wiki.json` 按需重建 0.83s。
+
+### 查詢品質（真 embedding）
+自然語言問法都導到正確 endpoint：「give a customer their money back」→ `payments-api
+POST /refunds`、「recover lost data」→ `flashback-api POST /recover`、「log in and get a
+token」→ `auth-api POST /login`。hybrid 召回（flashback 文件 6 種改寫）：純關鍵字 **1/6**
+→ hybrid **6/6**；不相關問句正確回 0 筆。跨領域（Claude over MCP）：問「誤刪資料表怎麼救」
+→ agent 自己串起 Oracle 知識 + `flashback-api /recover`。
+
+### 單元測試
+- llm-wiki-processor：**78 passed, 15 skipped**（skip = 需真 PG，本地跳過）
+- llm-mcp-server：**59 passed**
+
+完整壓測計畫與逐步數據：[../SCALE_STRESS_PLAN.md](../SCALE_STRESS_PLAN.md)。
+
+---
+
 ## 2026-06-11（晚）— 向量索引層（Postgres + pgvector）
 
 **環境**：本地 MinIO binary + PostgreSQL 16（pgvector 0.6.0、本機 apt 安裝，
