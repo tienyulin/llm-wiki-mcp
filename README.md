@@ -1,5 +1,8 @@
 # LLM Wiki MCP — Platform（平台 / 總集 repo）
 
+> 👉 **想真正搞懂這系統怎麼運作（含真實實跑紀錄），先看
+> [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md)。** 那是唯一的「從這開始」文件。
+
 把「很多個應用程式的文件」自動匯集成一份**團隊共享、給 LLM 看的 Wiki**：每個 app
 各自產生 API 文檔 → 推送到處理器 → LLM 萃取 → 存入 MinIO + Postgres/pgvector
 → 透過 **MCP** 給 Claude/agent 查詢（關鍵字 + 語意），並能跨領域推理。
@@ -96,8 +99,8 @@ claude mcp add --transport http llm-wiki http://localhost:8002/mcp/
 - **[docs/README.md](docs/README.md)** — 完整索引
 - 測試結果：**[docs/test-results.md](docs/test-results.md)**（含最新真實 LLM 規模壓測 + P1–P4 修復實測）；壓測計畫：[SCALE_STRESS_PLAN.md](SCALE_STRESS_PLAN.md)
 - 架構（跨領域）：[service-layering](docs/architecture/service-layering.md)、[vector-search](docs/architecture/vector-search.md)
-- 指南：[local-setup](docs/guides/local-setup.md)、[end-to-end-example](docs/guides/end-to-end-example.md)、[sop-to-wiki-pipeline](docs/guides/sop-to-wiki-pipeline.md)、[gitlab-setup](docs/guides/gitlab-setup.md)
-- 真實資料實跑範例：[docs/examples/real-semantic-walkthrough.md](docs/examples/real-semantic-walkthrough.md)
+- 指南：[local-setup](docs/guides/local-setup.md)、[sop-to-wiki-pipeline](docs/guides/sop-to-wiki-pipeline.md)、[gitlab-setup](docs/guides/gitlab-setup.md)
+- 真實資料實跑：見 [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md)（逐層真實紀錄）
 - 各服務細節在該服務 repo 的 `docs/`。
 
 ## 測試

@@ -6,7 +6,7 @@ MOCK_EMBEDDINGS、本機 MinIO 與 PostgreSQL 16 + pgvector 0.6/HNSW）。
 
 > 想先看具體資料長什麼樣子（markdown 進去、每一步出來什麼、兩邊各存什麼、
 > 查詢撈到什麼），請先讀
-> [端到端完整範例](../guides/end-to-end-example.md)。
+> [這系統到底怎麼運作（含真實紀錄）](../HOW-IT-WORKS.md)。
 
 ## TL;DR
 
