@@ -1,113 +1,90 @@
-# Documentation Index
+# 文件索引
 
-Welcome to the LLM Wiki MCP documentation. This directory contains all project documentation organized by category.
+歡迎來到 LLM Wiki MCP 文件。此目錄依分類整理所有專案文件。
 
-## 📋 Quick Navigation
+## 📋 快速導覽
 
-### 🚀 Getting Started
-- **[End-to-End Example](guides/end-to-end-example.md)** — Follow two real markdown files through the entire pipeline: what each step produces, what MinIO/Postgres store, and what each query endpoint returns. **Start here if you're new.**
-- **[SOP → Wiki Pipeline](guides/sop-to-wiki-pipeline.md)** — The full chain: SOP → spec → API + README → simulated CI push → wiki → query, with real output.
-- **[Real Semantic Walkthrough](examples/real-semantic-walkthrough.md)** — One real request traced through every layer with **captured real data** (real MiniMax LLM + real Gemini embeddings): the embedding API response, MinIO `wiki.json`, the PG row + vector, and a semantic query — proving the mcp score by reproducing the pgvector cosine in psql. Each value paired with the command that produced it.
-- **[Local Setup Guide](guides/local-setup.md)** — How to set up the project locally, start services, run tests
-- **[Quick Start](../README.md#快速開始)** — Quick start in main README
+### 🚀 開始上手
+- **[端到端範例](guides/end-to-end-example.md)** — 跟著兩份真實 markdown 走完整條
+  pipeline：每步產生什麼、MinIO/Postgres 存什麼、各查詢端點回什麼。**新手從這開始。**
+- **[SOP → Wiki Pipeline](guides/sop-to-wiki-pipeline.md)** — 完整鏈：SOP → spec →
+  API + README → 模擬 CI push → wiki → 查詢，含真實輸出。
+- **[真實語意實跑](examples/real-semantic-walkthrough.md)** — 一個真實請求穿過每一層，
+  全程**擷取真實資料**：embedding API 回應、MinIO `wiki.json`、PG 列 + 向量、語意查詢
+  —— 並在 psql 重現 pgvector cosine 來證明 mcp 的分數。每個值都配上產生它的指令。
+- **[本地設置指南](guides/local-setup.md)** — 如何本地建置、起服務、跑測試
+- **[快速開始](../README.md#快速開始)** — 主 README 的快速開始
 
-### 🏗️ Architecture & Design
-- **[Diagrams](architecture/diagrams.md)** — Cross-service mermaid views: system, ingest pipeline, query/admin surfaces, data model, run modes
-- **[Service Layering](architecture/service-layering.md)** — Three-layer architecture (api/service/repository), dependency injection, test patterns
-- **[LLM Provider Abstraction](../wiki-processor/docs/llm-provider-abstraction.md)** — Design and implementation of 7-provider abstraction layer *(lives in the wiki-processor component)*
-- **[Concurrency Model](../wiki-processor/docs/concurrency.md)** — Multi-replica safe two-phase CAS write pipeline *(lives in the wiki-processor component)*
-- **[Vector Search](architecture/vector-search.md)** — PG+pgvector index design, measured evaluation, failure semantics (with diagrams)
-- **[API Schema](api/schema.md)** — Complete API endpoint documentation
+### 🏗️ 架構與設計
+- **[架構圖](architecture/diagrams.md)** — 跨服務 mermaid 視圖：系統、匯入 pipeline、查詢/管理介面、資料模型、執行模式
+- **[服務分層](architecture/service-layering.md)** — 三層架構（api/service/repository）、依賴注入、測試模式
+- **[LLM Provider 抽象](../wiki-processor/docs/llm-provider-abstraction.md)** — 7-provider 抽象層設計與實作 *(住在 wiki-processor 元件)*
+- **[並發模型](../wiki-processor/docs/concurrency.md)** — 多 replica 安全的兩階段 CAS 寫入 pipeline *(住在 wiki-processor 元件)*
+- **[向量搜尋](architecture/vector-search.md)** — PG+pgvector 索引設計、實測評估、失敗語意（含圖）
+- **[API Schema](api/schema.md)** — 完整 API 端點文件
 
-### 👨‍💻 Development
-- **[Development Guide](guides/development.md)** — Code structure, how to extend, development workflow
-- **[SOP → Spec → Service](../specs/oracle-flashback-recovery-api.spec.md)** — Document-driven flow: SOP (`../sop/`) → spec via `.claude/skills/sop-to-spec` → `flashback-api/` implementation
-- **[GitLab Integration](guides/gitlab-setup.md)** — CI/CD configuration and GitLab integration steps
+### 👨‍💻 開發
+- **[開發指南](guides/development.md)** — 程式碼結構、如何擴展、開發流程
+- **[SOP → Spec → Service](../specs/oracle-flashback-recovery-api.spec.md)** — 文件驅動流程：SOP（`../sop/`）→ 經 `.claude/skills/sop-to-spec` 產 spec → `flashback-api/` 實作
+- **[GitLab 整合](guides/gitlab-setup.md)** — CI/CD 設定與 GitLab 整合步驟
 
-### 🔧 Troubleshooting & Monitoring
-- **[Troubleshooting Guide](troubleshooting.md)** — Common issues and solutions
-- **[Test Results](test-results.md)** — Latest test run results and performance metrics
+### 🔧 疑難排解與監控
+- **[疑難排解指南](troubleshooting.md)** — 常見問題與解法
+- **[測試結果](test-results.md)** — 最新測試與效能數據
 
 ---
 
-## 📁 Directory Structure
+## 📁 目錄結構
 
 ```
 docs/
-├── README.md                              # This file
+├── README.md                              # 本檔
 ├── guides/
-│   ├── end-to-end-example.md             # Worked example through the whole pipeline
-│   ├── local-setup.md                    # Local environment setup
-│   ├── development.md                    # Development guidelines
-│   └── gitlab-setup.md                   # GitLab CI/CD configuration
+│   ├── end-to-end-example.md             # 走完整 pipeline 的範例
+│   ├── local-setup.md                    # 本地環境設置
+│   ├── development.md                    # 開發規範
+│   └── gitlab-setup.md                   # GitLab CI/CD 設定
 ├── architecture/
-│   ├── llm-provider-abstraction.md       # Provider abstraction design
-│   ├── concurrency.md                    # Multi-replica CAS write design
-│   └── vector-search.md                  # PG+pgvector design + evaluation
+│   ├── service-layering.md               # 三層架構
+│   └── vector-search.md                  # PG+pgvector 設計 + 評估
 ├── api/
-│   └── schema.md                         # API endpoint reference
-├── troubleshooting.md                    # Troubleshooting & FAQ
-└── test-results.md                       # Test execution results
+│   └── schema.md                         # API 端點參考
+├── troubleshooting.md                    # 疑難排解 & FAQ
+└── test-results.md                       # 測試執行結果
 ```
 
 ---
 
-## 🧪 Tests
-
-Test files are organized in the `tests/` directory:
-
-```
-tests/
-├── unit/                                 # Unit tests (in package directories)
-├── integration/                          # Integration tests
-│   ├── test_docker_integration.py
-│   └── test_processor.py
-└── stress/                               # Performance & stress tests
-    ├── test_100_apps_performance.py
-    ├── test_poc_standalone.py
-    └── test_poc_100_apps.py
-```
-
-### Running Tests
+## 🧪 測試
 
 ```bash
-# All tests
-pytest
+# 各服務 repo 的單元測試（從各 repo 目錄跑）
+cd wiki-processor && python -m pytest
+cd mcp-server && python -m pytest
 
-# Specific category
-pytest tests/integration/
-pytest tests/stress/
-
-# With coverage
-pytest --cov=wiki_processor --cov=mcp_server
+# 平台整合/壓力測試
+python -m pytest tests/integration/test_processor.py
 ```
 
 ---
 
-## 📖 Document Purpose
+## 📖 文件用途
 
-| File | Purpose | Audience |
+| 檔 | 用途 | 讀者 |
 |------|---------|----------|
-| local-setup.md | Step-by-step environment setup | Developers |
-| development.md | Code structure and extension guide | Contributors |
-| gitlab-setup.md | CI/CD pipeline configuration | DevOps / Developers |
-| llm-provider-abstraction.md | Design decisions for provider pattern | Architects |
-| schema.md | API endpoint reference | Backend developers |
-| troubleshooting.md | Common issues and fixes | Everyone |
-| test-results.md | Performance benchmarks | QA / Ops |
+| local-setup.md | 逐步環境設置 | 開發者 |
+| development.md | 程式碼結構與擴展指南 | 貢獻者 |
+| gitlab-setup.md | CI/CD pipeline 設定 | DevOps / 開發者 |
+| llm-provider-abstraction.md | provider 模式設計決策 | 架構師 |
+| schema.md | API 端點參考 | 後端開發者 |
+| troubleshooting.md | 常見問題與修法 | 所有人 |
+| test-results.md | 效能基準 | QA / Ops |
 
 ---
 
-## 🔄 Work in Progress
+## 📝 更新紀錄
 
-This documentation is continuously updated. If you find outdated information or have suggestions for improvement, please:
-1. Open an issue describing the problem
-2. Create a PR with improvements following the [development guide](guides/development.md)
-
----
-
-## 📝 Latest Updates
-
-- **2026-05-11** — Reorganized documentation structure for clarity
-- **2026-05-10** — Phase 8 complete: 7-provider LLM abstraction
-- **2026-05-09** — Multi-provider configuration documentation added
+- **2026-06-20** — 真實 LLM 規模壓測 + P1–P4 修復（見 [test-results.md](test-results.md)）；文件中文化
+- **2026-06-11** — 向量索引層（Postgres + pgvector）
+- **2026-05-10** — Phase 8 完成：7-provider LLM 抽象
+</content>

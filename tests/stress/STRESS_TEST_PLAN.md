@@ -1,43 +1,39 @@
-# Stress Test Runbook — 100+ Apps → wiki-processor (EXECUTOR: READ ALL OF THIS)
+# 壓力測試 Runbook —— 100+ Apps → wiki-processor（執行者：全部讀完）
 
-You are running a stress test of this project. Follow every step **in order**.
-Copy every command's **full output** into a report. Do **not** change any code.
+你正在跑這個專案的壓力測試。**照順序**做每一步。把每個指令的**完整輸出**抄進報告。
+**不要改任何程式碼。**
 
----
-
-## 0. Your job and the rules (read first)
-
-**Goal of the test.** More than 100 applications each push a README to
-`wiki-processor` (`POST /process`) at the same time. We want to know:
-1. Can the processor handle 100+ concurrent pushes (does every push succeed)?
-2. Does it update the wiki **correctly** — each app's data stored, **app-isolated**,
-   with **no lost writes** when many apps push at once?
-3. Does it cause any problem (crash, timeout, data loss, retries, slowdown)?
-4. Are the `mcp-server` query results **correct** afterward?
-
-**Your rules:**
-- **Observe and record only. Do NOT fix or change any code.** We analyze later.
-- **Record EVERYTHING**: every command you run and its **complete output**, every
-  problem (copy the exact error text / traceback), and all results.
-- **If a step fails, DO NOT STOP.** Write down exactly what happened and continue
-  with the remaining steps that can still run.
-- At the end, write a full report to `tests/stress/RESULTS_<YYYY-MM-DD>.md`
-  (use today's date) using the template in Section 10, then commit it.
-
-**Helper script.** Use `tests/stress/push_apps.py` (already in this branch). It
-is **pure Python stdlib — no `pip install` needed**. It pushes apps and verifies
-results over HTTP. Run all commands from the **repo root**.
-
-> Note: the older `tests/stress/test_real_service_stress.py` has bugs (it imports
-> `storage.minio_client` which does not exist — the module is
-> `repository.minio_client` — and it needs `aiohttp`). **Do not use it.** Use
-> `push_apps.py`. If you try the old one and it errors, just record the error.
+> 名詞：**CAS** = ETag 樂觀鎖；**lost write** = 並發下被蓋掉的寫入；**app 隔離** = 一個 app
+> 的更新不影響別的 app；**429** = 供應商限流（請求太多）。
 
 ---
 
-## 1. Environment check (record this)
+## 0. 你的任務與規則（先讀）
 
-Docker Desktop must be **running**. Then record versions:
+**測試目標。** 100+ 個應用各自同時把 README 推給 `wiki-processor`（`POST /process`）。要知道：
+1. processor 能不能扛 100+ 並發推送（每個都成功嗎）？
+2. 它有沒有**正確**更新 wiki —— 每個 app 的資料都存了、**app 隔離**、多 app 同推時**無 lost write**？
+3. 有沒有造成問題（crash、timeout、資料遺失、retry、變慢）？
+4. 之後 `mcp-server` 的查詢結果**正確**嗎？
+
+**規則：**
+- **只觀察與記錄。不要修或改任何程式碼。** 之後再分析。
+- **記錄一切**：跑的每個指令與其**完整輸出**、每個問題（抄確切錯誤/traceback）、所有結果。
+- **某步失敗，不要停。** 寫下確切發生什麼，繼續還能跑的步驟。
+- 最後把完整報告寫到 `tests/stress/RESULTS_<YYYY-MM-DD>.md`（用今天日期），格式見第 10 節，然後 commit。
+
+**輔助腳本。** 用 `tests/stress/push_apps.py`（已在本分支）。它是**純 Python stdlib —— 不需
+`pip install`**。它用 HTTP 推 app 並驗證結果。所有指令從 **repo root** 跑。
+
+> 注意：舊的 `tests/stress/test_real_service_stress.py` 有 bug（它 import 不存在的
+> `storage.minio_client` —— 模組是 `repository.minio_client` —— 且需要 `aiohttp`）。
+> **不要用它。** 用 `push_apps.py`。若試了舊的並報錯，記下錯誤即可。
+
+---
+
+## 1. 環境檢查（記錄）
+
+Docker Desktop 必須**運行中**。然後記版本：
 ```bash
 docker info >/dev/null 2>&1 && echo "docker daemon UP" || echo "docker daemon DOWN — start Docker Desktop and wait"
 docker --version
@@ -46,61 +42,60 @@ python3 --version
 uname -a            # OS / arch
 sysctl -n hw.ncpu 2>/dev/null || nproc    # CPU count
 ```
-Write all of this into the report under "Environment".
+全部寫進報告的「Environment」。
 
 ---
 
-## 2. Bring up the stack (PG/pgvector is ON by default)
+## 2. 起 stack（PG/pgvector 預設開）
 
 ```bash
 docker compose down -v
 docker compose up -d --build
 ```
-Wait ~30–60s, then check health (re-run until both return JSON):
+等 ~30–60s，再檢查健康（重跑直到兩者都回 JSON）：
 ```bash
 docker compose ps
 curl -s localhost:8001/health ; echo
 curl -s localhost:8002/health ; echo
 ```
-**Expected:** `wiki-minio` and `wiki-pg` show `(healthy)`; `wiki-processor` and
-`mcp-server` are `Up`. `:8001/health` contains `"vector_index_connected":true`.
-`:8002/health` is `{"status":"ok"}`.
+**預期：** `wiki-minio` 與 `wiki-pg` 顯示 `(healthy)`；`wiki-processor` 與 `mcp-server` 為 `Up`。
+`:8001/health` 含 `"vector_index_connected":true`。`:8002/health` 為 `{"status":"ok"}`。
 
-If `wiki-processor` is **not** Up, record:
+若 `wiki-processor` **沒**起來，記錄：
 ```bash
 docker compose ps -a
 docker compose logs --tail=60 wiki-processor
 ```
-…then re-run `docker compose up -d` once and re-check. Record what you saw.
+…再 `docker compose up -d` 一次並重查。記下你看到什麼。
 
 ---
 
-## 3. Baseline (empty wiki)
+## 3. Baseline（空 wiki）
 
 ```bash
 curl -s localhost:8002/wiki_info | python3 -m json.tool
 curl -s localhost:8001/status   | python3 -m json.tool
 ```
-**Expected:** `modules: 0`, `total_endpoints: 0`, `wiki_size: 0` (fresh). Record.
+**預期：** `modules: 0`、`total_endpoints: 0`、`wiki_size: 0`（全新）。記錄。
 
 ---
 
-## 4. RUN A — 150 apps (primary, PG on)
+## 4. RUN A —— 150 apps（主測，PG 開）
 
-Push:
+推：
 ```bash
 python3 tests/stress/push_apps.py push --n 150 | tee /tmp/runA_push.txt
 ```
-**Expected:** `succeeded: 150/150`, then `PUSH RESULT: PASS`. Record the whole
-output (succeeded count, apps/sec, p50/p95/max latency, any FAILED lines).
+**預期：** `succeeded: 150/150`，然後 `PUSH RESULT: PASS`。記整段輸出（成功數、apps/sec、
+p50/p95/max 延遲、任何 FAILED 行）。
 
-Verify with the script:
+用腳本驗證：
 ```bash
 python3 tests/stress/push_apps.py verify --n 150 --pg on | tee /tmp/runA_verify.txt
 ```
-**Expected:** `VERIFY RESULT: PASS` (all checks PASS). Record the whole output.
+**預期：** `VERIFY RESULT: PASS`（全部 PASS）。記整段輸出。
 
-Manual spot-checks (record each):
+手動抽查（各記錄）：
 ```bash
 # module count
 curl -s localhost:8002/list_apis | python3 -c "import sys,json;m=json.load(sys.stdin)['modules'];print('modules:',len(m))"
@@ -112,90 +107,88 @@ done
 curl -s 'localhost:8002/search_apis?query=stress-app-007'   | python3 -m json.tool
 curl -s 'localhost:8002/semantic_search?query=stress-app-042%20items&top_k=3' | python3 -m json.tool
 ```
-**Expected:** modules `150`; each detail has `path: /stress-app-NNN/items`,
-`source_app: stress-app-NNN`; search `mode: pg_keyword`; semantic `mode: semantic`
-and `GET /stress-app-042/items` appears in results.
+**預期：** modules `150`；每個 detail 有 `path: /stress-app-NNN/items`、`source_app:
+stress-app-NNN`；search `mode: pg_keyword`；semantic `mode: semantic` 且結果含
+`GET /stress-app-042/items`。
 
 ---
 
-## 5. Isolation / incremental-update test (very important)
+## 5. 隔離 / 增量更新測試（很重要）
 
-Re-push ONE app with a **different** endpoint, then prove only that app changed:
+用**不同的** endpoint 重推同一個 app，再證明只有那個 app 變了：
 ```bash
 python3 tests/stress/push_apps.py update-one --app stress-app-005 | tee /tmp/runA_update.txt
 ```
-Verify:
+驗證：
 ```bash
-# app-005 should now have ONLY the new endpoint (old GET gone)
+# app-005 現在應只有新 endpoint（舊 GET 不見）
 curl -s localhost:8002/list_apis | python3 -c "import sys,json;print('app-005:',json.load(sys.stdin)['modules'].get('stress-app-005'))"
-# totals must be UNCHANGED (replaced, not added): still 150 / 150
+# 總數必須不變（取代，非新增）：仍 150 / 150
 curl -s localhost:8002/wiki_info | python3 -c "import sys,json;d=json.load(sys.stdin);print('modules:',d['modules'],'endpoints:',d['total_endpoints'])"
-# a neighbor app must be untouched
+# 鄰居 app 必須沒被動
 curl -s "localhost:8002/get_api_detail?module=stress-app-004&api_key=GET%20/stress-app-004/items" | python3 -m json.tool
 ```
-**Expected:** `app-005: ['POST /stress-app-005/orders']` (old `GET` gone);
-`modules: 150`, `total_endpoints: 150` (unchanged); `stress-app-004` still has its
-`GET /stress-app-004/items`. This proves app-level isolation + no cross-app clobber.
-Record all three.
+**預期：** `app-005: ['POST /stress-app-005/orders']`（舊 `GET` 不見）；`modules: 150`、
+`total_endpoints: 150`（不變）；`stress-app-004` 仍有它的 `GET /stress-app-004/items`。
+這證明 app 級隔離 + 無跨 app 覆蓋。三項都記。
 
 ---
 
-## 6. Problem scan for RUN A (record any hits)
+## 6. RUN A 問題掃描（命中就記）
 
 ```bash
 docker compose ps -a
 docker compose logs wiki-processor mcp-server 2>&1 | grep -iE "error|traceback|exception|conflict|retry|exhaust" | tail -40
 docker stats --no-stream
 ```
-Record: any container `Restarting`/`Exited`, any traceback, any CAS
-retry/conflict warnings, and the CPU/MEM of `wiki-processor`, `mcp-server`, `wiki-pg`.
+記：任何容器 `Restarting`/`Exited`、任何 traceback、任何 CAS retry/conflict 警告、以及
+`wiki-processor`、`mcp-server`、`wiki-pg` 的 CPU/MEM。
 
 ---
 
-## 7. RUN B — 300 apps (stretch / breaking point)
+## 7. RUN B —— 300 apps（拉伸 / 臨界點）
 
-Clean slate, bring up again, push 300:
+清空、重起、推 300：
 ```bash
 docker compose down -v && docker compose up -d --build
-# wait for health (repeat Section 2 checks)
+# 等健康（重複第 2 節檢查）
 python3 tests/stress/push_apps.py push   --n 300 | tee /tmp/runB_push.txt
 python3 tests/stress/push_apps.py verify  --n 300 --pg on | tee /tmp/runB_verify.txt
 ```
-Then repeat the Section 6 problem scan.
-**Record especially:** did all 300 succeed? any lost updates (verify FAIL on the
-"every app present" check)? latency vs 150 (did p95/max jump)? any HTTP 5xx,
-timeouts, CAS retry exhaustion, or container crash? Is `vector_index.entries == 300`?
+然後重做第 6 節問題掃描。
+**特別記：** 300 個都成功嗎？有 lost update 嗎（verify 在「每個 app 都在」這項 FAIL）？
+延遲 vs 150（p95/max 跳很多嗎）？任何 HTTP 5xx、timeout、CAS retry 耗盡、容器 crash？
+`vector_index.entries == 300` 嗎？
 
 ---
 
-## 8. RUN C — 150 apps with PG DISABLED (compare + fallback)
+## 8. RUN C —— 150 apps、PG 關閉（對照 + fallback）
 
 ```bash
 docker compose down -v
 PG_DSN= docker compose up -d --build minio wiki-processor mcp-server
-# wait for health; this time :8001/health should show "vector_index_connected":false
+# 等健康；這次 :8001/health 應顯示 "vector_index_connected":false
 curl -s localhost:8001/health ; echo
 python3 tests/stress/push_apps.py push   --n 150 | tee /tmp/runC_push.txt
 python3 tests/stress/push_apps.py verify  --n 150 --pg off | tee /tmp/runC_verify.txt
 ```
-**Expected:** push still 150/150; verify PASS with `search mode: wiki_scan` and
-`semantic mode: keyword_fallback`; `vector_index.available: false`. Compare the
-push latency (p50/p95) against RUN A to show the PG-sync overhead. Record.
+**預期：** push 仍 150/150；verify PASS 且 `search mode: wiki_scan`、`semantic mode:
+keyword_fallback`；`vector_index.available: false`。把 push 延遲（p50/p95）跟 RUN A 比，
+顯示 PG-sync 的開銷。記錄。
 
 ---
 
-## 8b. RUN R — REAL test (real MiniMax LLM + real embeddings)  ⚠️ costs money
+## 8b. RUN R —— REAL 測試（真 MiniMax LLM + 真 embedding）⚠️ 會花錢
 
-Runs A–C used `MOCK_LLM=true` / `MOCK_EMBEDDINGS=true` (no real API calls). This
-run makes extraction **real**: real MiniMax LLM + real OpenAI embeddings, against
-the same real MinIO/PG/HTTP services. Scale is smaller (**N=50, concurrency 5**)
-because each `/process` is a real ~20–30s MiniMax call that **costs money** and
-**rate-limits (HTTP 429)** at high concurrency.
+Run A–C 用 `MOCK_LLM=true` / `MOCK_EMBEDDINGS=true`（無真 API 呼叫）。這次讓抽取**真實**：
+真 MiniMax LLM + 真 OpenAI embedding，對同樣的真 MinIO/PG/HTTP 服務。規模較小（**N=50、
+concurrency 5**），因為每個 `/process` 是真的 ~20–30s MiniMax 呼叫，**會花錢**且高並發會
+**限流（HTTP 429）**。
 
-### R.1 Secrets — create a gitignored `.env` (NEVER commit; rotate keys after)
-First confirm `.env` is ignored, then create it:
+### R.1 機密 —— 建 gitignored 的 `.env`（永不 commit；用完輪換 key）
+先確認 `.env` 被忽略，再建：
 ```bash
-git check-ignore .env && echo ".env is gitignored ✓"   # must print this
+git check-ignore .env && echo ".env is gitignored ✓"   # 必須印這行
 cat > .env <<'EOF'
 MOCK_LLM=false
 LLM_PROVIDER=minimax
@@ -207,87 +200,82 @@ EMBEDDING_API_KEY=__PUT_OPENAI_KEY_HERE__
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIM=1536
 EOF
-# edit .env and paste the real keys
+# 編輯 .env 貼上真 key
 ```
-**Security:** keys live ONLY in `.env`. Never paste a key into the report, a
-commit, or a log. If `git check-ignore .env` prints nothing, STOP — do not write
-keys to a tracked file.
+**安全：** key 只住在 `.env`。絕不把 key 貼進報告、commit 或 log。若 `git check-ignore .env`
+什麼都沒印，停 —— 別把 key 寫進被追蹤的檔。
 
-### R.2 Bring up with real config
+### R.2 用真設定起 stack
 ```bash
 docker compose down -v && docker compose up -d --build
-# wait, then:
+# 等，然後：
 curl -s localhost:8001/health ; echo
 ```
-**Expected:** health shows `"llm_provider":"minimax"`, `"minimax_accessible":true`,
-`"vector_index_connected":true`. If `"minimax_accessible":false` → the key is
-wrong/empty: record it and STOP the real run (fix the key first).
+**預期：** health 顯示 `"llm_provider":"minimax"`、`"minimax_accessible":true`、
+`"vector_index_connected":true`。若 `"minimax_accessible":false` → key 錯/空：記下並停止
+real run（先修 key）。
 
-### R.3 Run R — push 50 real apps, throttled, with retries
+### R.3 跑 R —— 推 50 個真 app，節流、含 retry
 ```bash
 python3 tests/stress/push_apps.py push   --n 50 --workers 5 --retries 3 | tee /tmp/runR_push.txt
 python3 tests/stress/push_apps.py verify  --n 50 --mode real --pg on    | tee /tmp/runR_verify.txt
 ```
-- Expect this to take **~5–15 min**. Higher latency than mock is normal.
-- `--mode real` is **lenient**: real LLM names modules/endpoints freely, so it
-  checks each app is **findable by `source_app`** instead of exact-matching the
-  endpoint. Record the full output.
-- If some submits FAILED with a rate-limit message, that's expected at the edge —
-  record how many, and whether `--retries` recovered them.
+- 預期約 **5–15 分鐘**。比 mock 高延遲是正常的。
+- `--mode real` **寬鬆**：真 LLM 自由命名 module/endpoint，所以它檢查每個 app **能用
+  `source_app` 找到**，而非精確比對 endpoint。記完整輸出。
+- 若有些 submit 因限流 FAILED，那是邊界上的預期 —— 記多少個、以及 `--retries` 有沒有救回。
 
-### R.4 Authoritative correctness (psql — deterministic despite LLM variance)
+### R.4 權威正確性（psql —— 即使 LLM 有變異也確定）
 ```bash
-# No lost app: distinct source_app must equal 50
+# 無遺失 app：distinct source_app 必須 == 50
 docker compose exec -T pg psql -U wiki -d wiki -tA -c \
   "SELECT count(DISTINCT source_app) FROM api_entries WHERE source_app LIKE 'stress-app-%';"
 docker compose exec -T pg psql -U wiki -d wiki -tA -c \
   "SELECT count(*) FROM app_sync WHERE source_app LIKE 'stress-app-%';"
-# Per-app endpoint count (real LLM may extract 1+; record the spread)
+# 每 app endpoint 數（真 LLM 可能抽 1+；記分布）
 docker compose exec -T pg psql -U wiki -d wiki -c \
   "SELECT source_app, count(*) AS endpoints FROM api_entries WHERE source_app LIKE 'stress-app-%' GROUP BY source_app ORDER BY 1 LIMIT 12;"
 ```
-**Expected:** both counts == **50** (no lost updates). Record.
+**預期：** 兩個 count 都 == **50**（無 lost update）。記錄。
 
-### R.5 Extraction-quality eyeball (the whole point of going real)
+### R.5 抽取品質目視（跑真的的重點）
 ```bash
 for a in stress-app-000 stress-app-025 stress-app-049; do
   echo "== $a =="
   docker compose exec -T pg psql -U wiki -d wiki -c \
     "SELECT module, api_key, left(description,80) FROM api_entries WHERE source_app='$a';"
 done
-# real semantic search (real OpenAI vectors now):
+# 真語意搜尋（現在是真 OpenAI 向量）：
 curl -s 'localhost:8002/semantic_search?query=list%20items%20for%20stress-app-025&top_k=3' | python3 -m json.tool
 ```
-Record how the real LLM named the module + endpoint vs the input README
-(`# stress-app-NNN API` / `GET /stress-app-NNN/items`), and whether semantic
-search returns `"mode":"semantic"` with sensible hits.
+記真 LLM 怎麼命名 module + endpoint（vs 輸入 README `# stress-app-NNN API` /
+`GET /stress-app-NNN/items`），以及語意搜尋是否回 `"mode":"semantic"` 且命中合理。
 
-### R.6 Problem scan (same as Section 6) + record
+### R.6 問題掃描（同第 6 節）+ 記錄
 ```bash
 docker compose ps -a
 docker compose logs wiki-processor 2>&1 | grep -iE "error|traceback|rate limit|429|conflict|retry" | tail -40
 ```
 
-**RUN R pass criteria:** all 50 submits succeed (or every failure explained, e.g.
-documented 429s after retries); `count(DISTINCT source_app) == 50` (no lost app);
-every app has ≥1 extracted endpoint; `semantic_search` returns `"mode":"semantic"`
-with sensible hits; no container crash.
+**RUN R 通過標準：** 50 個 submit 全成功（或每個失敗都有解釋，如記錄到的 429 + retry 後恢復）；
+`count(DISTINCT source_app) == 50`（無遺失 app）；每個 app ≥1 抽出的 endpoint；
+`semantic_search` 回 `"mode":"semantic"` 且命中合理；無容器 crash。
 
 ---
 
-## 9. Teardown
+## 9. 收尾
 
 ```bash
 docker compose down -v
-# remove the real-key file when done
+# 完成後移除真 key 檔
 rm -f .env
 ```
 
 ---
 
-## 10. REQUIRED REPORT — write to `tests/stress/RESULTS_<YYYY-MM-DD>.md` and commit
+## 10. 必填報告 —— 寫到 `tests/stress/RESULTS_<YYYY-MM-DD>.md` 並 commit
 
-Fill in **every** section. Paste real command output, not summaries.
+填**每一**節。貼真實指令輸出，不要摘要。
 
 ```markdown
 # Stress Test Results — <DATE>
@@ -331,10 +319,12 @@ Fill in **every** section. Paste real command output, not summaries.
 - Open questions / anything that needs a closer look.
 ```
 
-## Pass criteria (per run)
-- 100% submits succeed (`PUSH RESULT: PASS`)
-- `verify` all checks PASS: modules == N, total_endpoints == N, **no missing apps**
-  (no lost updates), each app isolated to its own endpoint
-- isolation test: only the updated app changed; totals unchanged; neighbor intact
-- PG-on runs: `vector_index.entries == embedded == N`; semantic finds samples
-- no container crash/restart; no unhandled HTTP 5xx
+## 通過標準（每個 run）
+- 100% submit 成功（`PUSH RESULT: PASS`）
+- `verify` 全 PASS：modules == N、total_endpoints == N、**無遺失 app**（無 lost update）、
+  每個 app 隔離在自己的 endpoint
+- 隔離測試：只有被更新的 app 變了；總數不變；鄰居完好
+- PG-on run：`vector_index.entries == embedded == N`；語意找得到樣本
+- 無容器 crash/restart；無未處理的 HTTP 5xx
+```
+</content>

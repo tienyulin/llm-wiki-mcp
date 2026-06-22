@@ -1,160 +1,109 @@
-# Test Suite
+# 測試套件
 
-This directory contains all tests for the LLM Wiki MCP project, organized by category.
+此目錄含 LLM Wiki MCP 專案的所有測試，依分類整理。
 
-## 📁 Structure
+## 📁 結構
 
 ```
 tests/
-├── integration/             # Integration tests
-└── stress/                  # Performance & stress tests
+├── integration/             # 整合測試
+└── stress/                  # 效能 & 壓力測試
 
-wiki-processor/tests/        # Unit tests (wiki-processor)
-mcp-server/tests/            # Unit tests (mcp-server)
-mcp-server/http_api/test_http_api.py  # HTTP API spec tests
+wiki-processor/tests/        # 單元測試（wiki-processor）
+mcp-server/tests/            # 單元測試（mcp-server）
 ```
 
-> ⚠️ `wiki-processor` and `mcp-server` are **separate import roots**. Unit
-> tests must be run from each package's directory (`python -m pytest` puts
-> the cwd on `sys.path`). Running `pytest wiki-processor/tests/ mcp-server/tests/`
-> from the repo root does **not** work (import errors + duplicate `tests`
-> package names).
+> ⚠️ `wiki-processor` 與 `mcp-server` 是**獨立的 import root**。單元測試要從各 package
+> 目錄跑（`python -m pytest` 會把 cwd 放進 `sys.path`）。從 repo 根目錄跑
+> `pytest wiki-processor/tests/ mcp-server/tests/` **不會動**（import error + 重複的
+> `tests` package 名）。
 
-## 🧪 Test Categories
+## 🧪 測試分類
 
-### Unit Tests
-**Location:** within service packages
+### 單元測試（hermetic／隔離）
+**位置：** 各服務 package 內
 
-- `wiki-processor/tests/test_llm.py` — LLM provider abstraction
-- `wiki-processor/tests/test_routes.py` — API endpoint handlers (empty-markdowns 422,
-  X-API-Key auth 401/200/dev mode)
-- `wiki-processor/tests/test_processor.py` — change detection logic
-- `wiki-processor/tests/test_concurrency.py` — **concurrency regression**: 20 parallel
-  `process()` calls must not lose updates; CAS conflict injection; resubmission
-  replaces only that app's entries; v2 schema migration
-- `wiki-processor/tests/test_storage_cas.py` — MinIO conditional-write behavior
-  (runs against a real MinIO, auto-skips when unreachable)
-- `wiki-processor/tests/test_embeddings.py` — embedding config/client/mock
-  (determinism, golden values, batching, error mapping)
-- `wiki-processor/tests/test_vector_sync.py` — PG index sync wiring: best-effort
-  contract (embedder/PG failures never fail the wiki write), reindex
-- `wiki-processor/tests/test_pg_store.py` — PGVectorStore against a **real
-  Postgres+pgvector** (auto-skips when `PG_TEST_DSN` host unreachable, like
-  the CAS tests); includes the multi-host DSN failover smoke
-- `mcp-server/tests/test_rate_limit.py` — token-bucket middleware (burst, 429, refill)
-- `mcp-server/tests/test_wiki_service.py` — wiki service methods
-- `mcp-server/tests/test_cache.py` — cache TTL + exact-match invalidation
-- `mcp-server/tests/test_pg_read_path.py` — PG-first reads with wiki fallback,
-  `/semantic_search` degradation modes, circuit breaker
-- `mcp-server/tests/test_embeddings.py` — **golden-pinned** mock_embed identity
-  with the wiki-processor copy (query and index vectors must share one space)
-- `mcp-server/http_api/test_http_api.py` — HTTP read API behavior spec
+重點檔（wiki-processor）：`test_llm.py`（LLM 抽象）、`test_routes.py`（端點：空 markdown 422、
+X-API-Key 驗證）、`test_processor.py`（變更偵測）、`test_concurrency.py`（**並發回歸**：per-app
+物件、CAS 衝突注入、重送只取代該 app）、`test_storage_cas.py`（MinIO 條件寫入，無 server 自動 skip）、
+`test_embeddings.py`、`test_vector_sync.py`（PG 索引同步 best-effort）、`test_pg_store.py`（對**真
+Postgres+pgvector**，無 server 自動 skip）、`test_dominant_app_links.py`（概念連結 dominant-app 邊界）、
+`test_llm_retry.py`（限流退避 + 併發上限）。
 
-Unit tests are **hermetic** — no MinIO or LLM API required
-(each package's `tests/conftest.py` stubs the Minio SDK; wiki-processor's
-also sets `MOCK_LLM=true` / `MOCK_EMBEDDINGS=true`). Exceptions: the
-real-MinIO CAS tests and real-PG store tests, which auto-skip.
+重點檔（mcp-server）：`test_rate_limit.py`、`test_wiki_service.py`、`test_cache.py`、
+`test_pg_read_path.py`（PG 優先讀 + fallback、語意降級、斷路器）、`test_embeddings.py`
+（**golden-pinned** 與 wiki-processor 的 mock_embed 一致）、`test_query_embed_cache.py`（query 向量 LRU 快取）、
+`test_mcp_server.py`（MCP initialize → tools/list → tools/call）。
 
-**Run unit tests:**
+單元測試**hermetic** —— 不需 MinIO 或 LLM API（各 package 的 `conftest.py` stub 掉 Minio SDK；
+wiki-processor 另設 `MOCK_LLM=true` / `MOCK_EMBEDDINGS=true`）。例外：真-MinIO CAS 測試與真-PG store
+測試，無 server 時自動 skip。
+
 ```bash
-cd wiki-processor && python -m pytest          # 73 tests (CAS/PG tests skip without servers)
-cd mcp-server && python -m pytest              # 42 tests (tests/ + http_api/)
+cd wiki-processor && python -m pytest          # 78 passed, 15 skipped（無 server 時 CAS/PG skip）
+cd mcp-server && python -m pytest              # 59 passed
 
-# real-PG store tests need any Postgres with pgvector:
+# 真-PG store 測試需要任一裝 pgvector 的 Postgres：
 docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pg -e POSTGRES_DB=wiki pgvector/pgvector:pg16
-# (default PG_TEST_DSN=postgresql://postgres:pg@localhost:5432/wiki)
 ```
 
-### Integration Tests
-**Location:** `tests/integration/`
+### 整合測試
+**位置：** `tests/integration/`
 
-- `test_processor.py` — payload/logic validation (pytest, no services needed)
-- `test_docker_integration.py` — end-to-end: 7 scenarios against running services
-  (single app, multi app, wiki structure, API detail, 10 parallel apps,
-  incremental update, semantic search — scenario 7 auto-skips when
-  `wiki_info.vector_index.available` is false)
+- `test_processor.py` —— payload/邏輯驗證（pytest，免 server）
+- `test_docker_integration.py` —— 端到端：對運行中的服務跑多個情境（單 app、多 app、wiki 結構、
+  API 細節、10 並行 app、增量更新、語意搜尋 —— 語意情境在 `wiki_info.vector_index.available`
+  為 false 時自動 skip）
 
-**Requires running services** — either `docker-compose up`, or without docker
-(see `docs/troubleshooting.md` § 在沒有 Docker 的環境執行測試): local MinIO
-binary + two uvicorn processes with `MOCK_LLM=true` and `MCP_SERVER_URL` set.
+**需要運行中的服務** —— `docker compose up`，或本地 MinIO binary + 兩個 uvicorn（設 `MOCK_LLM=true`
+與 `MCP_SERVER_URL`）。
 
-**Run integration tests:**
+### 壓力測試
+**位置：** `tests/stress/` —— 這些是**腳本，用 `python` 跑、非 pytest**
+
+- `test_mock_stress.py` —— in-memory CAS storage 上 100 路併發更新：無 lost update、重送取代、
+  app 隔離、audit 完整
+- `test_real_service_stress.py` —— **100 並發 app 對真 HTTP 服務 + 真 MinIO（真 ETag 條件寫入）**；
+  逐 app 驗證完整性。印 p50/p95 `processing_time_ms`；PG 索引啟用時另驗 PG 條目數與語意可尋性
+- `STRESS_TEST_PLAN.md` —— 100+ app 壓測的逐步**runbook**
+
 ```bash
-python -m pytest tests/integration/test_processor.py     # pytest-style
-python tests/integration/test_docker_integration.py      # script, needs services
+python tests/stress/test_mock_stress.py            # hermetic，免 server
+python tests/stress/test_real_service_stress.py    # 需運行中的服務
 ```
 
-### Stress Tests
-**Location:** `tests/stress/` — these are **scripts, run with `python`, not pytest**
+## 📊 測試環境變數
 
-- `test_mock_stress.py` — 100-way concurrent updates on in-memory CAS storage:
-  no lost updates, resubmission replacement, app isolation, audit completeness
-- `test_real_service_stress.py` — **100 concurrent apps against the real HTTP
-  services + real MinIO (real ETag conditional writes)**; asserts per-app
-  integrity: every app's derived entries must appear in the final wiki.
-  Prints p50/p95 `processing_time_ms`; when the PG vector index is enabled it
-  additionally asserts PG entry counts and semantic findability for 5 sampled
-  apps (run once with and once without `PG_DSN` to quantify sync overhead)
-- `push_apps.py` — **dependency-free** (stdlib only) concurrent pusher + HTTP
-  verifier used by the 100+ app stress runbook (`push` / `verify` / `update-one`)
-- `STRESS_TEST_PLAN.md` — step-by-step **runbook** for a 100+ app stress test
-  (150 / 300 / PG-off mock runs **plus a REAL run** with real MiniMax LLM +
-  real OpenAI embeddings, N=50 throttled) with a required results-report
-  template; intended to be handed to another operator/model to execute and record
-
-**Run stress tests:**
-```bash
-python tests/stress/test_mock_stress.py            # hermetic, no services
-python tests/stress/test_real_service_stress.py    # needs running services
-```
-
-> The three legacy v1-model scripts (test_poc_standalone / test_poc_100_apps /
-> test_100_apps_performance) were removed with the schema-v2 migration — the
-> data model they exercised no longer exists.
-
-## 📊 Test Configuration
-
-| Variable | Default | Purpose |
+| 變數 | 預設 | 用途 |
 |----------|---------|---------|
-| `MOCK_LLM` | false | Use mock LLM responses (skip API calls) |
-| `LLM_PROVIDER` | minimax | LLM provider for tests |
-| `LLM_API_KEY` | (unset) | For testing with a real LLM API |
-| `MINIO_ENDPOINT` | minio:9000 | MinIO address (use `localhost:9000` locally) |
-| `MCP_SERVER_URL` | (unset) | Enables cache invalidation from wiki-processor |
-| `PROCESSOR_API_KEY` | (unset) | /process auth key; integration/stress clients send it automatically |
-| `RATE_LIMIT_RPS` | 0 | mcp-server per-IP rate limit (0 = disabled) |
-| `STRESS_N_APPS` | 100 | App count for `test_real_service_stress.py` |
-| `PG_DSN` | (unset) | Enables the PG vector index in both services |
-| `PG_TEST_DSN` | postgresql://postgres:pg@localhost:5432/wiki | Target for `test_pg_store.py` |
-| `MOCK_EMBEDDINGS` | false (true in unit conftest) | Deterministic local embeddings, no network |
+| `MOCK_LLM` | false | 用 mock LLM（跳過 API 呼叫） |
+| `LLM_PROVIDER` | minimax | 測試用 LLM provider |
+| `LLM_API_KEY` | (未設) | 測試真 LLM API |
+| `MINIO_ENDPOINT` | minio:9000 | MinIO 位址（本地用 `localhost:9000`） |
+| `MCP_SERVER_URL` | (未設) | 啟用 wiki-processor → mcp 的快取失效 |
+| `PROCESSOR_API_KEY` | (未設) | /process 驗證 key；整合/壓測 client 自動帶 |
+| `PG_DSN` | (未設) | 在兩個服務啟用 PG 向量索引 |
+| `MOCK_EMBEDDINGS` | false（unit conftest 為 true） | 確定性本地 embedding，免網路 |
 
-## ✅ Expected Results
+## 📊 預期結果
 
-| Test Suite | Expected Status | Duration |
+| 套件 | 預期 | 時間 |
 |-----------|-----------------|----------|
-| Unit tests (115 total) | All passing | ~8s |
-| Integration tests (7 scenarios) | All passing | ~10s |
-| Stress tests | All passing | ~15s (with MOCK_LLM=true) |
+| 單元（processor 78 / mcp 59） | 全過 | ~6s |
+| 整合（多情境） | 全過 | ~10s |
+| 壓力 | 全過 | ~15s（`MOCK_LLM=true`） |
 
-Latest verified run: see `docs/test-results.md`.
+最新驗證結果見 `docs/test-results.md`。
 
-## 🐛 Debugging Tests
+## 🐛 除錯
 
 ```bash
-python -m pytest -v --log-cli-level=DEBUG          # detailed logging
-python -m pytest tests/test_concurrency.py -v      # single file (from package dir)
-python -m pytest --pdb                             # drop into pdb on failure
+python -m pytest -v --log-cli-level=DEBUG          # 詳細 log
+python -m pytest tests/test_concurrency.py -v      # 單檔（從 package 目錄）
+python -m pytest --pdb                             # 失敗時進 pdb
 ```
-
-## 📝 Writing New Tests
-
-- **Unit tests:** place in the package's `tests/` directory; keep them hermetic
-  (use the in-memory storage / fake LLM patterns from `test_concurrency.py`)
-- **Integration tests:** place in `tests/integration/`
-- **Stress tests:** place in `tests/stress/` as runnable scripts with a non-zero
-  exit code on failure
 
 ---
 
-**Last Updated:** 2026-06-11
-**Maintainer:** LLM Wiki MCP Team
+**最後更新：** 2026-06-20
+</content>
