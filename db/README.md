@@ -1,40 +1,38 @@
-# db/ — Postgres + pgvector serving index
+# db/ — Postgres + pgvector 服務索引
 
-Postgres is a **derived, rebuildable index** over MinIO's `wiki.json` (the
-single source of truth). If PG state is ever wrong or lost: wipe it and call
-`POST /admin/reindex` on wiki-processor.
+Postgres 是 MinIO `wiki.json`（唯一真相來源）之上的**衍生、可重建索引**。
+若 PG 狀態錯了或遺失：清掉它，對 wiki-processor 呼叫 `POST /admin/reindex`。
 
-## Layout
+> 名詞：**衍生索引** = 從真相來源算出來、壞了可重建的副本；**pgvector** = Postgres 向量擴充；
+> **pg_trgm** = Postgres 的 trigram 擴充，讓 `ILIKE '%詞%'` 走索引（關鍵字搜尋）。
 
-- `init/01-extension.sql` — `CREATE EXTENSION vector / pg_trgm`, run as
-  superuser on the database's first boot (mounted into the compose `pg`
-  service's `/docker-entrypoint-initdb.d`).
+## 結構
 
-## Where is the table DDL?
+- `init/01-extension.sql` —— `CREATE EXTENSION vector / pg_trgm`，在資料庫第一次啟動時
+  以 superuser 身分執行（掛進 compose `pg` 服務的 `/docker-entrypoint-initdb.d`）。
 
-In code: `wiki-processor/storage/pg_store.py` → `PGVectorStore.ensure_schema()`.
-It is idempotent and runs on startup/first use, so the schema works against
-**any** PG with pgvector + pg_trgm installed. Keeping one executable copy
-avoids SQL-file/code drift; this directory only handles what requires
-superuser at bootstrap time.
+## 表的 DDL 在哪？
 
-## Topology
+在程式碼裡：`wiki-processor/repository/pg_store.py` → `PGVectorStore.ensure_schema()`。
+它是 idempotent（可重複執行），啟動/首次使用時跑，所以對**任何**裝了 pgvector + pg_trgm
+的 PG 都成立。只留一份可執行的 schema 避免 SQL 檔與程式碼漂移；本目錄只處理 bootstrap 時
+需要 superuser 的部分。
 
-A single `pgvector/pgvector:pg16` instance behind compose profile `pg`:
+## 拓撲
+
+compose profile `pg` 後面一個 `pgvector/pgvector:pg16` 實例：
 
 ```
 PG_DSN='postgresql://wiki:wikipass@pg:5432/wiki' docker compose --profile pg up -d
 ```
 
-The index is optional and rebuildable, so single-instance durability is
-acceptable: if PG dies, reads fall back to the wiki.json path automatically
-and `POST /admin/reindex` restores the index afterwards.
+索引可選且可重建，所以單實例的耐久性可接受：PG 掛了，讀取自動退回 wiki.json 路徑，
+事後 `POST /admin/reindex` 還原索引。
 
-**Scaling up later:** the client code (psycopg3) already supports multi-host
-failover DSNs (`host=a,b,c` + `target_session_attrs=read-write`, covered by
-`test_pg_store.py::test_multihost_dsn_skips_dead_host`), so moving to an HA
-cluster — repmgr, Patroni, CloudNativePG, or a managed PG — touches only
-docker-compose.yml and `PG_DSN`. No application changes.
+**之後要擴展：** client 程式（psycopg3）已支援多主機 failover DSN（`host=a,b,c` +
+`target_session_attrs=read-write`，由 `test_pg_store.py::test_multihost_dsn_skips_dead_host`
+覆蓋），所以改成 HA 叢集（repmgr、Patroni、CloudNativePG，或託管 PG）只動 docker-compose.yml
+與 `PG_DSN`，不改應用程式。
 
-See `docs/architecture/vector-search.md` for the full design and failure
-semantics.
+完整設計與失敗語意見 `docs/architecture/vector-search.md`。
+</content>
