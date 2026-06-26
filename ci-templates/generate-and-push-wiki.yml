@@ -14,8 +14,32 @@
 # ============================================================================
 
 stages:
+  - lint
   - generate
   - push
+
+# ============================================================================
+# Step 0: Lint source docs (frontmatter 合規 + openapi 新鮮度/完整度)
+# 標準見 docs/guides/authoring-source-docs.md
+# ============================================================================
+
+lint_docs:
+  stage: lint
+  image: python:3.14.2-slim
+  script:
+    # frontmatter 受控詞彙/必填（ci-templates 腳本；app 端可放 scripts/）
+    - python ci-templates/lint_frontmatter.py docs/ README.md || python scripts/lint_frontmatter.py docs/ README.md
+    # 有 openapi.json → 完整度（缺 description/範例/error 即 fail）+ 與程式碼一致（防呆）
+    - |
+      if [ -f "openapi.json" ]; then
+        python ci-templates/openapi_completeness.py openapi.json --fail || python scripts/openapi_completeness.py openapi.json --fail
+        if [ -n "$APP_MODULE" ]; then
+          pip install -q -e . 2>/dev/null || true
+          python ci-templates/check_openapi_fresh.py --app "$APP_MODULE" || python scripts/check_openapi_fresh.py --app "$APP_MODULE"
+        fi
+      fi
+  only:
+    - main
 
 variables:
   WIKI_PROCESSOR_URL: "${WIKI_PROCESSOR_URL:-http://localhost:8001}"
@@ -130,6 +154,12 @@ push_wiki:
         "source_app": os.getenv("CI_PROJECT_NAME"),  # 應用名稱
         "source_version": os.getenv("CI_COMMIT_SHA")  # git commit SHA
       }
+
+      # 有 committed openapi.json → 一起送（endpoint 走確定性轉換、免 LLM）
+      if os.path.exists("openapi.json"):
+        with open("openapi.json", encoding="utf-8") as f:
+          payload["openapi"] = json.load(f)
+        print("  Attached openapi.json (deterministic endpoint ingest)")
 
       # 發送請求
       wiki_processor_url = os.getenv("WIKI_PROCESSOR_URL")
