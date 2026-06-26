@@ -1,5 +1,7 @@
 # 範本與細節
 
+範例是通用示意，換成你自己的服務/領域。規範見 `contract.md`，各框架做法見 `frameworks.md`。
+
 ## README — Mode A（有 openapi.json）
 
 ```markdown
@@ -11,12 +13,12 @@ tags: [billing, payments]
 
 # Payments API
 
-收款與退款服務：對已存信用卡扣款、退款給客戶。   ← 第一段＝摘要（被 embed）
+對已存信用卡扣款、退款給客戶。   ← 第一段＝摘要（被 embed）
 
 ## 使用方式
 - 設定 `PAYMENTS_API_KEY`；base URL `…`。
 
-（endpoint 不用寫 —— 由 committed openapi.json 帶，processor 走確定性轉換）
+（endpoint 不用寫 —— 由 committed openapi.json 帶，wiki 走確定性轉換）
 ```
 
 ## README — Mode B（沒有 OpenAPI，手寫 endpoint）
@@ -37,7 +39,7 @@ POST /charge — 對信用卡扣款收取款項
 POST /refund — 退款給客戶
 GET  /balance — 查目前餘額
 ```
-- 每行 `METHOD /path — 用途`；`— 用途` 那句會被 LLM 當 description（影響語意搜尋），寫清楚。
+- 每行 `METHOD /path — 意圖`；`— 意圖` 那句會被當 description（影響語意搜尋），寫清楚做什麼、為什麼。
 
 ## 知識文件
 
@@ -59,7 +61,7 @@ tags: [oracle, recovery]
 ```
 - `type` 用 Diátaxis：tutorial / how-to / reference / explanation。
 
-## .pre-commit-config.yaml（Mode A）
+## .pre-commit-config.yaml（Mode A，`.openapi()` 那種框架）
 
 ```yaml
 repos:
@@ -83,10 +85,25 @@ repos:
         language: system
         files: '\.md$'
 ```
-把 `ci-templates/{gen_openapi,openapi_completeness,lint_frontmatter,frontmatter.schema}.{py,json}`
-複製進 app 的 `scripts/`（schema 與 lint 同目錄）。
+- 把本 skill `scripts/` 底下的 `gen_openapi.py`、`openapi_completeness.py`、`lint_frontmatter.py`、
+  `frontmatter.schema.json` 複製進 app 的 `scripts/`（schema 與 lint 同目錄）。
+- **別的框架**：`gen-openapi` 的 `entry` 換成該框架的匯出指令（見 `frameworks.md`，如
+  `python manage.py spectacular --file openapi.yaml`、`npm run gen:openapi`、`swag init` …）。
 
-## 推送到 wiki（本地測試 / CI）
+## Mode B 的 .pre-commit-config.yaml（只驗 frontmatter）
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: frontmatter-lint
+        name: frontmatter lint
+        entry: python scripts/lint_frontmatter.py
+        language: system
+        files: '\.md$'
+```
+
+## 推送到 wiki（本地測試）
 
 ```bash
 python - <<'PY'
@@ -101,15 +118,19 @@ req = urllib.request.Request("http://localhost:8001/process",
 print(json.load(urllib.request.urlopen(req, timeout=120))["status"])
 PY
 ```
-正式環境由 CI 範本 `ci-templates/generate-and-push-wiki.yml` 自動做（push 時附 committed openapi.json）。
+正式環境由 CI 範本（如 `generate-and-push-wiki.yml`）自動做（push 時附 committed openapi.json）。
 
 ## 驗證查得到
+
 ```bash
 curl 'localhost:8002/search_apis?query=退款給客戶'
 curl 'localhost:8002/search_knowledge?query=救回資料&type=how-to'
 ```
+- 用「使用者會打的句子」搜，不是用標題。查得到才算第一段摘要寫對了。
 
-## api-complete：缺漏補在哪（對照）
+## api-complete：缺漏補在哪
+
+跨框架對照在 `contract.md` 的 §api-complete 表。FastAPI 範例：
 
 | 缺漏 | 補在程式碼 |
 |---|---|
@@ -118,5 +139,5 @@ curl 'localhost:8002/search_knowledge?query=救回資料&type=how-to'
 | 缺範例 | `responses={200: {"content": {"application/json": {"example": {...}}}}}` 或 Pydantic `json_schema_extra` |
 | 缺 error | `responses` 補 4xx/5xx + schema |
 
-改完跑 `python scripts/gen_openapi.py --app <module:attr>` 重生，再 `openapi_completeness.py --fail` 確認歸零。
-</content>
+改完跑 `python scripts/gen_openapi.py --app <module:attr>` 重生，再 `openapi_completeness.py --fail`
+確認歸零。別的框架重生指令見 `frameworks.md`。
