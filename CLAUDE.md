@@ -11,7 +11,7 @@ pointer here:
 | `wiki-processor/` | [tienyulin/llm-wiki-processor](https://github.com/tienyulin/llm-wiki-processor) |
 | `mcp-server/`     | [tienyulin/llm-mcp-server](https://github.com/tienyulin/llm-mcp-server) |
 | `flashback-api/`  | [tienyulin/flashback-api](https://github.com/tienyulin/flashback-api) |
-| `.claude/skills/` | [tienyulin/llm-wiki-skills](https://github.com/tienyulin/llm-wiki-skills) — shared Claude Code skills (`wiki-doc-author`, `sop-to-spec`) |
+| `.claude/skills/` | [tienyulin/ai-agent-skills](https://github.com/tienyulin/ai-agent-skills) — shared team AI-agent skills marketplace (`wiki-doc-author`, `sop-to-spec`, `skill-author` + external mirrors); one-command install via its `skills-sync.sh` |
 
 - Clone with `git clone --recurse-submodules` (or `git submodule update --init`).
 - A service's own README, `.env.example`, `docker-compose.yml`, `docs/`, and tests
