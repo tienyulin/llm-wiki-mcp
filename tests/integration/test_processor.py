@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""
-Simple test script to verify processor logic
-(without actually running it or calling external APIs)
+"""Processor contract shapes — request, change detection, wiki, response.
+
+Pure stdlib structure checks (no services). These used to build a dict and
+`return` it without asserting, so they passed without testing anything; they
+now assert the shapes they describe.
 """
 
 import json
@@ -9,8 +11,7 @@ from datetime import datetime, timezone
 
 
 def test_request_structure():
-    """Test that request structure is valid"""
-
+    """A /process request payload has the required fields in the right shapes."""
     payload = {
         "markdowns": {
             "api-users.md": "## GET /users/{id}\nReturn user by ID",
@@ -21,62 +22,49 @@ def test_request_structure():
             "repo": "central-markdown-repo",
             "branch": "main",
             "commit_sha": "abc123",
-            "pipeline_url": "https://gitlab.com/..."
-        }
+            "pipeline_url": "https://gitlab.com/...",
+        },
     }
-
-    print("✅ Request structure is valid")
-    print(f"   Markdowns: {len(payload['markdowns'])} files")
-    print(f"   Timestamp: {payload['timestamp']}")
-    print(f"   Trigger repo: {payload['trigger_info']['repo']}")
-
-    return payload
+    assert set(payload) >= {"markdowns", "timestamp", "trigger_info"}
+    assert isinstance(payload["markdowns"], dict) and len(payload["markdowns"]) == 2
+    assert all(isinstance(v, str) and v for v in payload["markdowns"].values())
+    # timestamp must be ISO-8601 parseable
+    datetime.fromisoformat(payload["timestamp"])
+    assert payload["trigger_info"]["repo"] == "central-markdown-repo"
+    # round-trips as JSON (it crosses an HTTP boundary)
+    assert json.loads(json.dumps(payload)) == payload
 
 
 def test_change_detection():
-    """Test change detection logic"""
-
+    """Added / modified / deleted are derived from snapshot vs new markdowns."""
     old_snapshot = {
         "api-users.md": "old content",
         "api-orders.md": "order content",
         "api-old.md": "deprecated",
     }
-
     new_markdowns = {
         "api-users.md": "updated content",  # modified
-        "api-orders.md": "order content",    # unchanged
-        "api-products.md": "new content",    # added
+        "api-orders.md": "order content",  # unchanged
+        "api-products.md": "new content",  # added
         # api-old.md deleted
     }
-
-    old_files = set(old_snapshot.keys())
-    new_files = set(new_markdowns.keys())
-
+    old_files = set(old_snapshot)
+    new_files = set(new_markdowns)
     added = new_files - old_files
     deleted = old_files - new_files
     modified = {f for f in old_files & new_files if old_snapshot[f] != new_markdowns[f]}
-
     changes = {
-        "added": sorted(list(added)),
-        "modified": sorted(list(modified)),
-        "deleted": sorted(list(deleted)),
+        "added": sorted(added),
+        "modified": sorted(modified),
+        "deleted": sorted(deleted),
     }
-
-    print("✅ Change detection logic works")
-    print(f"   Added: {changes['added']}")
-    print(f"   Modified: {changes['modified']}")
-    print(f"   Deleted: {changes['deleted']}")
-
     assert changes["added"] == ["api-products.md"]
     assert changes["modified"] == ["api-users.md"]
     assert changes["deleted"] == ["api-old.md"]
 
-    return changes
-
 
 def test_wiki_structure():
-    """Test wiki JSON structure"""
-
+    """A wiki object nests modules -> endpoint key -> detail under `apis`."""
     wiki = {
         "apis": {
             "users": {
@@ -84,9 +72,7 @@ def test_wiki_structure():
                     "description": "Get user by ID",
                     "method": "GET",
                     "path": "/users/{id}",
-                    "parameters": {
-                        "id": {"type": "string", "required": True}
-                    }
+                    "parameters": {"id": {"type": "string", "required": True}},
                 }
             },
             "orders": {
@@ -94,64 +80,38 @@ def test_wiki_structure():
                     "description": "Create new order",
                     "method": "POST",
                     "path": "/orders",
-                    "body": {"type": "object"}
+                    "body": {"type": "object"},
                 }
-            }
+            },
         },
-        "metadata": {
-            "version": "1.0",
-            "created_at": "2026-05-08T10:00:00Z",
-            "updated_at": "2026-05-08T10:05:00Z"
-        }
+        "metadata": {"version": "1.0", "updated_at": "2026-05-08T10:05:00Z"},
     }
-
-    print("✅ Wiki structure is valid")
-    print(f"   Modules: {len(wiki['apis'])} ({list(wiki['apis'].keys())})")
-    print(f"   Total endpoints: {sum(len(v) for v in wiki['apis'].values())}")
-    print(f"   Version: {wiki['metadata']['version']}")
-
-    return wiki
+    assert set(wiki["apis"]) == {"users", "orders"}
+    assert sum(len(m) for m in wiki["apis"].values()) == 2
+    detail = wiki["apis"]["users"]["GET /users/{id}"]
+    assert detail["method"] == "GET" and detail["path"] == "/users/{id}"
+    assert detail["description"]
+    assert wiki["metadata"]["version"] == "1.0"
 
 
 def test_response_structure():
-    """Test response structure"""
-
+    """A /process response carries status + a three-bucket changes summary."""
     response = {
         "status": "success",
         "message": "Wiki generated successfully",
         "wiki_url": "minio://wiki-data/wiki.json",
-        "changes_summary": {
-            "added": ["api-users.md"],
-            "modified": [],
-            "deleted": []
-        },
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "changes_summary": {"added": ["api-users.md"], "modified": [], "deleted": []},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-
-    print("✅ Response structure is valid")
-    print(f"   Status: {response['status']}")
-    print(f"   Wiki URL: {response['wiki_url']}")
-
-    return response
+    assert response["status"] in ("success", "partial", "failed")
+    assert set(response["changes_summary"]) == {"added", "modified", "deleted"}
+    assert response["changes_summary"]["added"] == ["api-users.md"]
+    datetime.fromisoformat(response["timestamp"])
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Wiki Processor - Logic Validation Tests")
-    print("=" * 60)
-
     test_request_structure()
-    print()
-
     test_change_detection()
-    print()
-
     test_wiki_structure()
-    print()
-
     test_response_structure()
-    print()
-
-    print("=" * 60)
-    print("✅ All tests passed!")
-    print("=" * 60)
+    print("✅ All processor contract checks passed")
