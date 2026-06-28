@@ -12,4 +12,4 @@
 	url = https://github.com/tienyulin/llm-wiki-infra
 [submodule ".claude/skills"]
 	path = .claude/skills
-	url = https://github.com/tienyulin/llm-wiki-skills
+	url = https://github.com/tienyulin/ai-agent-skills
